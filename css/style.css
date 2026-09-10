@@ -14,7 +14,18 @@ body{-webkit-user-select:none;user-select:none;overflow-x:hidden}
 #hud button:hover{background:#243049}
 
 #main{display:flex;gap:16px;align-items:flex-start}
-#stage{flex:1;min-width:0}
+#stage{flex:1;min-width:0;position:relative}
+
+#tut{position:absolute;left:10px;right:10px;top:10px;z-index:20;display:flex;justify-content:center;pointer-events:none}
+#tut .tut-body{pointer-events:auto;background:rgba(19,24,38,.97);border:1px solid #3a4667;border-radius:12px;padding:11px 14px;max-width:560px;box-shadow:0 10px 34px rgba(0,0,0,.45)}
+#tut .tut-step{font-size:10px;color:#7f8aa0;letter-spacing:.1em}
+#tut p{font-size:13px;line-height:1.6;margin:4px 0 10px}
+#tut .tut-btns{display:flex;gap:8px;justify-content:flex-end}
+#tut button{border:0;border-radius:7px;padding:7px 15px;font-size:12px;font-weight:700;cursor:pointer}
+#tutSkip{background:#26303f;color:#aeb8c8}
+#tutNext{background:#1d6feb;color:#fff}
+#side.tut-glow{box-shadow:0 0 0 2px #ffd85e,0 0 26px rgba(255,216,94,.38)}
+#help .card button+button{margin-left:8px}
 #cv{display:block;width:100%;height:auto;max-width:960px;margin:0 auto;background:#121826;border:1px solid #232b3d;border-radius:14px;touch-action:none}
 
 #linectrl{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:10px auto 0;max-width:960px}

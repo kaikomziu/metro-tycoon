@@ -27,8 +27,25 @@
     { key: 'lines',    name: '新規開業',   desc: '路線スロット +1',  max: 4,  cost: l => Math.round(200 * Math.pow(2.60, l)) },
   ];
 
+  const TUT = [
+    { text: 'ようこそ、社長。まずは駅をひとつタップして選んでみよう（白い輪がつくよ）。',
+      auto: () => editFrom != null },
+    { text: 'つぎに別の駅をタップ。2つの駅が線路でつながって、電車が走り出す！',
+      auto: () => totalEdges() >= 1 },
+    { text: '電車は自動で走り、駅のまわりの小さな印（＝乗客）を目的地まで運ぶと運賃が入る。運行するだけでも少し稼げるよ。しばらく眺めてみよう。',
+      auto: () => state.stats.delivered >= 2, manual: true },
+    { text: '点線の丸は「購入できる駅」。タップで買って線路をのばそう。ひとつの駅から何本でも枝分かれOK。資金が足りなければ少し待ってから。',
+      auto: () => state.stations.length >= 3, manual: true },
+    { text: '右の「アップグレード」で運賃・スピード・列車の数などを強化できる。資金に余裕が出たら押してみよう。',
+      auto: () => Object.keys(state.upg).some(k => state.upg[k] > 0), manual: true },
+    { text: '注意！ 乗客が溢れた駅は赤いリングが一周するとダイヤ崩壊＝ゲームオーバー。混みだしたら「増発」や「新規開業」で捌こう。開業おめでとう！',
+      manual: true, last: true },
+  ];
+
   // ---- state ----
   let state, cv, ctx, side, linectrl;
+  let tut = { active: false, step: 0 };
+  let tutEl, tutText, tutStepEl, tutNextBtn;
   let editing = -1;      // index of line being edited, or -1
   let editFrom = null;   // currently selected station id while editing
   let mouse = null;
@@ -90,6 +107,12 @@
   }
   function edgeExists(line, a, b) {
     return line.edges.some(e => (e[0] === a && e[1] === b) || (e[0] === b && e[1] === a));
+  }
+  function totalEdges() {
+    return state.lines.reduce((a, l) => a + l.edges.length, 0);
+  }
+  function edgeCount(id) {
+    return state.lines.reduce((a, l) => a + l.edges.filter(e => e[0] === id || e[1] === id).length, 0);
   }
   function addEdge(line, a, b) {
     if (a === b) return;
@@ -392,6 +415,7 @@
   function update(dt) {
     if (state.over) return;
     state.time += dt;
+    tutUpdate();
 
     spawnAcc += dt;
     const iv = BASE.spawn / (1 + state.upg.spawn * 0.35 + 0.10 * Math.max(0, state.stations.length - 2));
@@ -562,6 +586,17 @@
       });
     }
 
+    // tutorial highlight
+    const hl = tutHighlight();
+    if (hl) {
+      const r = 24 + Math.sin(state.time * 5) * 4;
+      ctx.strokeStyle = '#ffd85e';
+      ctx.lineWidth = 3;
+      ctx.globalAlpha = 0.9;
+      ctx.beginPath(); ctx.arc(hl.x, hl.y, r, 0, 7); ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+
     // coins
     coins.forEach(c => {
       ctx.globalAlpha = Math.max(0, 1 - c.t / 1.1);
@@ -680,6 +715,48 @@
 
   function showToast(m) { toastMsg = m; toastT = 2.4; }
 
+  // ---- tutorial ----
+  function startTut() { tut.active = true; tut.step = 0; renderTut(); }
+  function finishTut() {
+    tut.active = false;
+    try { localStorage.setItem('metro_tut_done', '1'); } catch (e) {}
+    renderTut();
+  }
+  function tutNext() {
+    tut.step++;
+    if (tut.step >= TUT.length) finishTut();
+    else renderTut();
+  }
+  function renderTut() {
+    if (!tutEl) return;
+    const glow = tut.active && tut.step === 4;
+    if (side) side.classList.toggle('tut-glow', glow);
+    if (!tut.active) { tutEl.hidden = true; return; }
+    const s = TUT[tut.step];
+    tutEl.hidden = false;
+    tutText.textContent = s.text;
+    tutStepEl.textContent = (tut.step + 1) + ' / ' + TUT.length;
+    tutNextBtn.hidden = !(s.manual || s.last);
+    tutNextBtn.textContent = s.last ? 'はじめる' : '次へ';
+  }
+  function tutUpdate() {
+    if (!tut.active) return;
+    const s = TUT[tut.step];
+    if (s.auto && s.auto()) tutNext();
+  }
+  function tutHighlight() {
+    if (!tut.active) return null;
+    if (tut.step <= 1) {
+      const cands = state.stations.filter(st => st.id !== editFrom);
+      if (!cands.length) return state.stations[0] || null;
+      return cands.slice().sort((a, b) => edgeCount(a.id) - edgeCount(b.id))[0];
+    }
+    if (tut.step === 3) {
+      return state.spots.slice().sort((a, b) => a.cost - b.cost)[0] || null;
+    }
+    return null;
+  }
+
   // ---- save / load ----
   function save() {
     try {
@@ -706,7 +783,7 @@
   }
   function boot() {
     if (/[?&]reset\b/.test(location.search)) {
-      try { localStorage.removeItem(SAVE_KEY); } catch (e) {}
+      try { localStorage.removeItem(SAVE_KEY); localStorage.removeItem('metro_tut_done'); } catch (e) {}
       defaultState();
       return;
     }
@@ -753,10 +830,22 @@
     side = document.getElementById('side');
     linectrl = document.getElementById('linectrl');
 
+    tutEl = document.getElementById('tut');
+    tutText = document.getElementById('tutText');
+    tutStepEl = document.getElementById('tutStep');
+    tutNextBtn = document.getElementById('tutNext');
+
     boot();
     buildSide();
     updateSide();
     renderLineCtrl();
+
+    tutNextBtn.addEventListener('click', tutNext);
+    document.getElementById('tutSkip').addEventListener('click', finishTut);
+    let tutSeen = false;
+    try { tutSeen = !!localStorage.getItem('metro_tut_done'); } catch (e) {}
+    if (!tutSeen && totalEdges() === 0 && state.stats.delivered === 0) startTut();
+    else renderTut();
 
     cv.addEventListener('pointerdown', e => {
       e.preventDefault();
@@ -777,6 +866,7 @@
     const help = document.getElementById('help');
     document.getElementById('bHelp').addEventListener('click', () => { renderChangelog(); help.classList.remove('hidden'); });
     document.getElementById('bCloseHelp').addEventListener('click', () => help.classList.add('hidden'));
+    document.getElementById('bTut').addEventListener('click', () => { help.classList.add('hidden'); startTut(); });
     document.getElementById('bRestart').addEventListener('click', () => {
       defaultState();
       spawnAcc = 0; coins = []; editing = -1; editFrom = null;

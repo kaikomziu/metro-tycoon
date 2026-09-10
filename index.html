@@ -32,6 +32,16 @@
   <div id="main">
     <div id="stage">
       <canvas id="cv" width="960" height="620"></canvas>
+      <div id="tut" hidden>
+        <div class="tut-body">
+          <span id="tutStep" class="tut-step"></span>
+          <p id="tutText"></p>
+          <div class="tut-btns">
+            <button id="tutSkip">スキップ</button>
+            <button id="tutNext">次へ</button>
+          </div>
+        </div>
+      </div>
       <div id="linectrl"></div>
     </div>
     <aside id="side"></aside>
@@ -58,6 +68,7 @@
       <li><b>セーブ：</b>自動保存されます。</li>
     </ul>
     <div id="changelog"></div>
+    <button id="bTut">チュートリアルをもう一度</button>
     <button id="bCloseHelp">とじる</button>
   </div>
 </div>
