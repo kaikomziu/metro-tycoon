@@ -29,7 +29,8 @@
 
   // ---- state ----
   let state, cv, ctx, side, linectrl;
-  let editing = -1;
+  let editing = -1;      // index of line being edited, or -1
+  let editFrom = null;   // currently selected station id while editing
   let mouse = null;
   let spawnAcc = 0, saveAcc = 0;
   let coins = [];
@@ -45,7 +46,7 @@
   const maxLines   = () => 1 + state.upg.lines;
 
   function newLine(i) {
-    return { idx: i, color: COLORS[i], name: NAMES[i], stationIds: [], trains: [], _cum: [0], _total: 0 };
+    return { idx: i, color: COLORS[i], name: NAMES[i], edges: [], trains: [], _adj: {} };
   }
   function addStation(x, y, shape) {
     const st = { id: state.nextId++, x, y, shape, passengers: [], crowdT: 0 };
@@ -81,40 +82,96 @@
     return state;
   }
 
-  // ---- lines / trains ----
-  function rebuildLine(line) {
-    const ids = line.stationIds;
-    line._cum = [0];
-    for (let i = 1; i < ids.length; i++) {
-      const a = stationById(ids[i - 1]), b = stationById(ids[i]);
-      line._cum[i] = line._cum[i - 1] + ((a && b) ? dist(a, b) : 0);
-    }
-    line._total = ids.length >= 2 ? line._cum[ids.length - 1] : 0;
+  // ---- line graph ----
+  function lineStationIds(line) {
+    const set = new Set();
+    line.edges.forEach(e => { set.add(e[0]); set.add(e[1]); });
+    return [...set];
+  }
+  function edgeExists(line, a, b) {
+    return line.edges.some(e => (e[0] === a && e[1] === b) || (e[0] === b && e[1] === a));
+  }
+  function addEdge(line, a, b) {
+    if (a === b) return;
+    if (!edgeExists(line, a, b)) { line.edges.push([a, b]); beep(430, 0.06, 0.035); }
+    rebuildLine(line);
+    save();
+  }
+  function removeEdge(line, a, b) {
+    line.edges = line.edges.filter(e => !((e[0] === a && e[1] === b) || (e[0] === b && e[1] === a)));
+    beep(300, 0.06, 0.03);
+    rebuildLine(line);
+    save();
+  }
 
-    const want = ids.length >= 2 ? trainsPerLine() : 0;
+  function rebuildLine(line) {
+    line._adj = {};
+    const link = (a, b) => {
+      (line._adj[a] = line._adj[a] || []);
+      if (line._adj[a].indexOf(b) < 0) line._adj[a].push(b);
+    };
+    line.edges.forEach(e => { link(e[0], e[1]); link(e[1], e[0]); });
+
+    const want = line.edges.length
+      ? trainsPerLine() + Math.floor(Math.max(0, line.edges.length - 1) / 2)
+      : 0;
     while (line.trains.length > want) line.trains.pop();
     while (line.trains.length < want) {
-      const i = line.trains.length;
-      line.trains.push({ p: line._total * ((i + 0.5) / want), dir: i % 2 ? -1 : 1, load: [], _lastK: -1 });
+      const e = line.edges[line.trains.length % line.edges.length];
+      line.trains.push({ a: e[0], b: e[1], p: Math.random(), load: [] });
     }
     line.trains.forEach(t => {
-      if (t.p > line._total) t.p = line._total;
-      if (t.p < 0) t.p = 0;
-      if (!Array.isArray(t.load)) t.load = [];
-      if (typeof t._lastK !== 'number') t._lastK = -1;
+      t.load = Array.isArray(t.load) ? t.load : [];
+      if (line.edges.length && !edgeExists(line, t.a, t.b)) {
+        const e = line.edges[0]; t.a = e[0]; t.b = e[1]; t.p = 0;
+      }
+      if (typeof t.p !== 'number' || t.p < 0 || t.p > 1) t.p = 0;
     });
   }
 
-  function trainXY(line, tr) {
-    const c = line._cum;
-    let k = 0;
-    while (k < c.length - 2 && c[k + 1] < tr.p) k++;
-    const a = stationById(line.stationIds[k]);
-    const b = stationById(line.stationIds[k + 1]);
-    if (!a || !b) return { x: a ? a.x : 0, y: a ? a.y : 0, a: a || { x: 0, y: 0 }, b: b || { x: 0, y: 0 } };
-    const segLen = (c[k + 1] - c[k]) || 1;
-    const f = (tr.p - c[k]) / segLen;
-    return { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f, a, b };
+  // breadth-first hop distances from `from` within this line's graph
+  function bfs(line, from) {
+    const d = {}; d[from] = 0;
+    const q = [from];
+    for (let i = 0; i < q.length; i++) {
+      const cur = q[i];
+      const nb = line._adj[cur] || [];
+      for (let j = 0; j < nb.length; j++) {
+        if (d[nb[j]] === undefined) { d[nb[j]] = d[cur] + 1; q.push(nb[j]); }
+      }
+    }
+    return d;
+  }
+
+  function chooseNext(line, atId, cameFrom, tr) {
+    const nb = line._adj[atId] || [];
+    if (!nb.length) return cameFrom;
+    let cands = nb.filter(n => n !== cameFrom);
+    if (!cands.length) cands = nb.slice();          // dead end -> turn around
+    if (cands.length === 1) return cands[0];
+    if (Math.random() < 0.15) return cands[(Math.random() * cands.length) | 0];
+
+    let best = cands[0], bestScore = Infinity;
+    for (const c of cands) {
+      const d = bfs(line, c);
+      let score;
+      if (tr.load.length) {
+        score = 0;
+        for (const p of tr.load) score += (d[p.dest] === undefined ? 40 : d[p.dest]);
+      } else {
+        let m = Infinity;
+        for (const sid in d) {
+          const st = stationById(+sid);
+          if (!st || !st.passengers.length) continue;
+          for (const p of st.passengers) {
+            if (d[p.dest] !== undefined) { if (d[sid] < m) m = d[sid]; break; }
+          }
+        }
+        score = (m === Infinity) ? 30 + Math.random() * 6 : m;
+      }
+      if (score < bestScore) { bestScore = score; best = c; }
+    }
+    return best;
   }
 
   function fareFor(hops) {
@@ -122,31 +179,44 @@
     return Math.round(BASE.fare * (1 + state.upg.fare * 0.5) * hops * (1 + 0.18 * (hops - 1)));
   }
 
+  function trainXY(line, tr) {
+    const a = stationById(tr.a), b = stationById(tr.b);
+    if (!a || !b) return { x: 0, y: 0, a: { x: 0, y: 0 }, b: { x: 0, y: 0 } };
+    return { x: a.x + (b.x - a.x) * tr.p, y: a.y + (b.y - a.y) * tr.p, a, b };
+  }
+
   function stepTrain(line, tr, dt) {
-    if (line.stationIds.length < 2) return;
-    const old = tr.p;
-    tr.p += tr.dir * trainSpeed() * dt;
-    if (tr.p <= 0) { tr.p = 0; tr.dir = 1; }
-    else if (tr.p >= line._total) { tr.p = line._total; tr.dir = -1; }
-    const lo = Math.min(old, tr.p) - 0.01, hi = Math.max(old, tr.p) + 0.01;
-    const c = line._cum;
-    for (let k = 0; k < c.length; k++) {
-      if (c[k] >= lo && c[k] <= hi && tr._lastK !== k) {
-        tr._lastK = k;
-        arrive(line, tr, k);
-      }
+    let a = stationById(tr.a), b = stationById(tr.b);
+    if (!a || !b || !edgeExists(line, tr.a, tr.b)) {
+      if (!line.edges.length) return;
+      const e = line.edges[(Math.random() * line.edges.length) | 0];
+      tr.a = e[0]; tr.b = e[1]; tr.p = 0;
+      a = stationById(tr.a); b = stationById(tr.b);
+      if (!a || !b) return;
+    }
+    let len = dist(a, b) || 1;
+    tr.p += trainSpeed() * dt / len;
+    let guard = 0;
+    while (tr.p >= 1 && guard++ < 8) {
+      tr.p -= 1;
+      arrive(line, tr, tr.b);
+      const next = chooseNext(line, tr.b, tr.a, tr);
+      tr.a = tr.b; tr.b = next;
+      a = stationById(tr.a); b = stationById(tr.b);
+      if (!a || !b) { tr.p = 0; break; }
+      const nlen = dist(a, b) || 1;
+      tr.p = tr.p * len / nlen;
+      len = nlen;
     }
   }
 
-  function arrive(line, tr, k) {
-    const st = stationById(line.stationIds[k]);
+  function arrive(line, tr, stId) {
+    const st = stationById(stId);
     if (!st) return;
-    // unload
     for (let i = tr.load.length - 1; i >= 0; i--) {
-      const p = tr.load[i];
-      if (p.dest === st.id) {
-        tr.load.splice(i, 1);
-        const gain = fareFor(Math.abs(k - p.fromK));
+      if (tr.load[i].dest === stId) {
+        const p = tr.load.splice(i, 1)[0];
+        const gain = fareFor(p.hops || 1);
         state.money += gain;
         state.stats.delivered++;
         state.stats.earned += gain;
@@ -154,15 +224,15 @@
         beep(720, 0.09, 0.035);
       }
     }
-    // operating revenue just for running
-    state.money += 1;
+    state.money += 1;               // operating revenue for running
     state.stats.earned += 1;
-    // board
+
     const cap = capacity();
+    const d = bfs(line, stId);
     for (let i = 0; i < st.passengers.length && tr.load.length < cap; i++) {
       const pg = st.passengers[i];
-      if (line.stationIds.indexOf(pg.dest) !== -1) {
-        pg.fromK = k;
+      if (d[pg.dest] !== undefined) {
+        pg.hops = d[pg.dest];
         tr.load.push(pg);
         st.passengers.splice(i, 1);
         i--;
@@ -172,19 +242,25 @@
 
   // ---- passengers ----
   function trySpawn() {
-    const active = state.stations.filter(s =>
-      state.lines.some((l, i) => i < maxLines() && l.stationIds.length >= 2 && l.stationIds.indexOf(s.id) !== -1));
-    if (active.length < 2) return;
-    const from = active[(Math.random() * active.length) | 0];
+    const lineSets = [];
+    for (let i = 0; i < state.lines.length && i < maxLines(); i++) {
+      if (state.lines[i].edges.length) lineSets.push(state.lines[i]);
+    }
+    if (!lineSets.length) return;
+    const activeIds = new Set();
+    lineSets.forEach(l => lineStationIds(l).forEach(id => activeIds.add(id)));
+    if (activeIds.size < 2) return;
+    const arr = [...activeIds];
+    const fromId = arr[(Math.random() * arr.length) | 0];
     const dests = new Set();
-    state.lines.forEach((l, i) => {
-      if (i < maxLines() && l.stationIds.length >= 2 && l.stationIds.indexOf(from.id) !== -1) {
-        l.stationIds.forEach(id => { if (id !== from.id) dests.add(id); });
-      }
+    lineSets.forEach(l => {
+      const d = bfs(l, fromId);
+      for (const k in d) { if (+k !== fromId) dests.add(+k); }
     });
     if (!dests.size) return;
-    const arr = [...dests];
-    from.passengers.push({ dest: arr[(Math.random() * arr.length) | 0], born: state.time, fromK: -1 });
+    const dd = [...dests];
+    const st = stationById(fromId);
+    if (st) st.passengers.push({ dest: dd[(Math.random() * dd.length) | 0], born: state.time, hops: 1 });
   }
 
   // ---- buying ----
@@ -238,14 +314,30 @@
     save();
   }
 
-  // ---- line editing ----
-  function appendToLine(line, id) {
-    if (line.stationIds.indexOf(id) !== -1) return;
-    line.stationIds.push(id);
-    rebuildLine(line);
-    renderLineCtrl();
-    save();
+  // ---- editing ----
+  function firstLineWith(id) {
+    for (let i = 0; i < state.lines.length && i < maxLines(); i++) {
+      if (lineStationIds(state.lines[i]).indexOf(id) !== -1) return i;
+    }
+    return -1;
   }
+  function firstEmptyLine() {
+    for (let i = 0; i < state.lines.length && i < maxLines(); i++) {
+      if (!state.lines[i].edges.length) return i;
+    }
+    return -1;
+  }
+  function stopEdit() { editing = -1; editFrom = null; renderLineCtrl(); }
+
+  function segDist(px, py, a, b) {
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const l2 = dx * dx + dy * dy || 1;
+    let t = ((px - a.x) * dx + (py - a.y) * dy) / l2;
+    t = Math.max(0, Math.min(1, t));
+    const cx = a.x + t * dx, cy = a.y + t * dy;
+    return Math.hypot(px - cx, py - cy);
+  }
+
   function handleTap(x, y) {
     if (state.over) return;
     const st = state.stations.find(s => dist2(s, { x, y }) < 20 * 20);
@@ -253,24 +345,45 @@
 
     if (editing >= 0) {
       const line = state.lines[editing];
-      if (sp) { const ns = buySpot(sp); if (ns) appendToLine(line, ns.id); return; }
-      if (st) {
-        const ids = line.stationIds;
-        if (ids.length && ids[ids.length - 1] === st.id) { editing = -1; renderLineCtrl(); return; }
-        appendToLine(line, st.id);
+      if (sp) {
+        const ns = buySpot(sp);
+        if (!ns) return;
+        if (editFrom != null) addEdge(line, editFrom, ns.id);
+        editFrom = ns.id;
+        renderLineCtrl();
         return;
       }
+      if (st) {
+        // tapping a station only ever selects / connects — never removes
+        if (editFrom != null && editFrom !== st.id && !edgeExists(line, editFrom, st.id)) {
+          addEdge(line, editFrom, st.id);
+        }
+        editFrom = st.id;
+        renderLineCtrl();
+        return;
+      }
+      // tapping an existing track of this line (away from stations) removes it
+      for (const e of line.edges) {
+        const a = stationById(e[0]), b = stationById(e[1]);
+        if (a && b && segDist(x, y, a, b) < 9) {
+          removeEdge(line, e[0], e[1]);
+          editFrom = null;
+          renderLineCtrl();
+          return;
+        }
+      }
+      editFrom = null;
+      renderLineCtrl();
       return;
     }
 
     if (sp) { buySpot(sp); return; }
     if (st) {
-      let li = state.lines.findIndex((l, i) => i < maxLines() && l.stationIds.indexOf(st.id) !== -1);
-      if (li < 0) li = state.lines.findIndex((l, i) => i < maxLines() && l.stationIds.length === 0);
+      let li = firstLineWith(st.id);
+      if (li < 0) li = firstEmptyLine();
       if (li < 0) li = 0;
       editing = li;
-      const l = state.lines[li];
-      if (l.stationIds.indexOf(st.id) === -1) appendToLine(l, st.id);
+      editFrom = st.id;
       renderLineCtrl();
     }
   }
@@ -287,7 +400,7 @@
 
     for (let i = 0; i < state.lines.length && i < maxLines(); i++) {
       const l = state.lines[i];
-      if (l.stationIds.length >= 2) l.trains.forEach(t => stepTrain(l, t, dt));
+      if (l.edges.length) l.trains.forEach(t => stepTrain(l, t, dt));
     }
 
     let over = false;
@@ -312,8 +425,7 @@
   function gameOver() {
     if (state.over) return;
     state.over = true;
-    editing = -1;
-    renderLineCtrl();
+    stopEdit();
     beep(160, 0.5, 0.06);
     document.getElementById('overstats').innerHTML =
       '運行時間：' + fmtTime(state.time) + '<br>' +
@@ -350,33 +462,30 @@
     ctx.fillStyle = 'rgba(255,255,255,0.03)';
     for (let x = 40; x < W; x += 40) for (let y = 40; y < H; y += 40) ctx.fillRect(x, y, 1, 1);
 
-    // lines
+    // tracks
+    ctx.lineWidth = 6;
+    ctx.lineCap = 'round';
     for (let i = 0; i < state.lines.length && i < maxLines(); i++) {
       const l = state.lines[i];
-      if (l.stationIds.length < 1) continue;
       ctx.strokeStyle = l.color;
-      ctx.lineWidth = 6;
-      ctx.lineJoin = 'round';
-      ctx.lineCap = 'round';
-      ctx.beginPath();
-      let started = false;
-      l.stationIds.forEach(id => {
-        const s = stationById(id); if (!s) return;
-        started ? ctx.lineTo(s.x, s.y) : ctx.moveTo(s.x, s.y);
-        started = true;
+      l.edges.forEach(e => {
+        const a = stationById(e[0]), b = stationById(e[1]);
+        if (!a || !b) return;
+        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
       });
-      ctx.stroke();
-      if (editing === i && mouse && l.stationIds.length) {
-        const last = stationById(l.stationIds[l.stationIds.length - 1]);
-        if (last) {
-          ctx.setLineDash([6, 6]); ctx.globalAlpha = 0.6;
-          ctx.beginPath(); ctx.moveTo(last.x, last.y); ctx.lineTo(mouse.x, mouse.y); ctx.stroke();
-          ctx.setLineDash([]); ctx.globalAlpha = 1;
-        }
+    }
+    // rubber band while editing
+    if (editing >= 0 && editFrom != null && mouse) {
+      const s = stationById(editFrom);
+      if (s) {
+        ctx.strokeStyle = state.lines[editing].color;
+        ctx.setLineDash([6, 6]); ctx.globalAlpha = 0.6;
+        ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.lineTo(mouse.x, mouse.y); ctx.stroke();
+        ctx.setLineDash([]); ctx.globalAlpha = 1;
       }
     }
 
-    // spots
+    // buyable spots
     state.spots.forEach(sp => {
       const aff = state.money >= sp.cost;
       ctx.setLineDash([4, 4]);
@@ -390,6 +499,8 @@
       ctx.fillText('¥' + sp.cost, sp.x, sp.y + 27);
     });
 
+    const editSet = editing >= 0 ? new Set(lineStationIds(state.lines[editing])) : null;
+
     // stations
     state.stations.forEach(s => {
       if (s.crowdT > 0) {
@@ -398,6 +509,11 @@
         ctx.beginPath();
         ctx.arc(s.x, s.y, 18, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, s.crowdT / BASE.overLimit));
         ctx.stroke();
+      }
+      if (editSet && editSet.has(s.id)) {
+        ctx.strokeStyle = state.lines[editing].color;
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(s.x, s.y, 19, 0, 7); ctx.stroke();
       }
       ctx.fillStyle = '#0d1017';
       ctx.beginPath(); ctx.arc(s.x, s.y, 14, 0, 7); ctx.fill();
@@ -417,10 +533,20 @@
       }
     });
 
+    // selected station marker
+    if (editing >= 0 && editFrom != null) {
+      const s = stationById(editFrom);
+      if (s) {
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath(); ctx.arc(s.x, s.y, 22, 0, 7); ctx.stroke();
+      }
+    }
+
     // trains
     for (let i = 0; i < state.lines.length && i < maxLines(); i++) {
       const l = state.lines[i];
-      if (l.stationIds.length < 2) continue;
+      if (!l.edges.length) continue;
       l.trains.forEach(tr => {
         const pos = trainXY(l, tr);
         const ang = Math.atan2(pos.b.y - pos.a.y, pos.b.x - pos.a.x);
@@ -489,7 +615,7 @@
         '<div class="updesc">' + u.desc + '</div>' +
         '<button class="upbtn"></button></div>';
     });
-    html += '<div class="help">駅をタップ→別の駅をタップで路線敷設。終点をもう一度タップで完了。点線の丸は購入できる駅。混雑を放置するとゲームオーバー。</div>';
+    html += '<div class="help">駅をタップして選択 → もう一つの駅をタップでつなぐ。同じ駅からさらに別の駅へつなげば枝分かれOK。線路をタップすると撤去。点線の丸は購入できる駅。列車は待っている客のいる方へ自動で進みます。混雑を放置するとゲームオーバー。</div>';
     side.innerHTML = html;
     side.querySelectorAll('.uprow').forEach(row => {
       row.querySelector('.upbtn').addEventListener('click', () => buyUpgrade(row.dataset.k));
@@ -511,26 +637,27 @@
     for (let i = 0; i < maxLines(); i++) {
       const l = state.lines[i];
       html += '<button class="lslot' + (editing === i ? ' on' : '') + '" data-i="' + i + '" style="--c:' + l.color + '">' +
-        '<span class="dot"></span>' + l.name + '<small>' + l.stationIds.length + '駅</small></button>';
+        '<span class="dot"></span>' + l.name + '<small>' + lineStationIds(l).length + '駅</small></button>';
     }
     if (editing >= 0) {
       html += '<button id="eUndo">1つ戻す</button><button id="eReset">全消し</button><button id="eDone">完了</button>' +
-        '<span class="ehint">駅をタップして延伸／終点をもう一度タップ、または「完了」で確定</span>';
+        '<span class="ehint">駅をタップで選択 → 別の駅をタップでつなぐ（枝分かれOK）。線路をタップすると撤去</span>';
     }
     linectrl.innerHTML = html;
     linectrl.querySelectorAll('.lslot').forEach(b => b.addEventListener('click', () => {
       const i = +b.dataset.i;
-      editing = editing === i ? -1 : i;
-      renderLineCtrl();
+      if (editing === i) { stopEdit(); }
+      else { editing = i; editFrom = null; renderLineCtrl(); }
     }));
     if (editing >= 0) {
       const l = state.lines[editing];
-      const u = document.getElementById('eUndo');
-      const r = document.getElementById('eReset');
-      const d = document.getElementById('eDone');
-      u.addEventListener('click', () => { l.stationIds.pop(); rebuildLine(l); renderLineCtrl(); save(); });
-      r.addEventListener('click', () => { l.stationIds = []; l.trains = []; rebuildLine(l); renderLineCtrl(); save(); });
-      d.addEventListener('click', () => { editing = -1; renderLineCtrl(); });
+      document.getElementById('eUndo').addEventListener('click', () => {
+        l.edges.pop(); editFrom = null; rebuildLine(l); renderLineCtrl(); save();
+      });
+      document.getElementById('eReset').addEventListener('click', () => {
+        l.edges = []; l.trains = []; editFrom = null; rebuildLine(l); renderLineCtrl(); save();
+      });
+      document.getElementById('eDone').addEventListener('click', stopEdit);
     }
   }
 
@@ -559,7 +686,10 @@
       const cp = {
         money: state.money, time: state.time, over: state.over,
         stations: state.stations, spots: state.spots,
-        lines: state.lines.map(l => ({ idx: l.idx, stationIds: l.stationIds, trains: l.trains.map(t => ({ p: t.p, dir: t.dir, load: t.load, _lastK: t._lastK })) })),
+        lines: state.lines.map(l => ({
+          idx: l.idx, edges: l.edges,
+          trains: l.trains.map(t => ({ a: t.a, b: t.b, p: t.p, load: t.load })),
+        })),
         upg: state.upg, stats: state.stats, nextId: state.nextId,
       };
       localStorage.setItem(SAVE_KEY, JSON.stringify(cp));
@@ -581,30 +711,34 @@
       return;
     }
     const s = load();
-    if (s) {
-      state = s;
-      state.upg = state.upg || {};
-      ['fare', 'capacity', 'speed', 'trains', 'spawn', 'lines'].forEach(k => {
-        if (typeof state.upg[k] !== 'number') state.upg[k] = 0;
-      });
-      state.stats = state.stats || { delivered: 0, earned: 0, spent: 0 };
-      state.spots = state.spots || [];
-      if (!Array.isArray(state.lines)) state.lines = [];
-      while (state.lines.length < 5) state.lines.push(newLine(state.lines.length));
-      state.lines.forEach((l, i) => {
-        l.idx = i; l.color = COLORS[i]; l.name = NAMES[i];
-        l.stationIds = l.stationIds || [];
-        l.trains = l.trains || [];
-        rebuildLine(l);
-      });
-      state.stations.forEach(st => { st.passengers = st.passengers || []; if (typeof st.crowdT !== 'number') st.crowdT = 0; });
-      if (typeof state.nextId !== 'number') {
-        state.nextId = 1 + Math.max(0, ...state.stations.map(x => x.id), ...state.spots.map(x => x.id));
+    if (!s) { defaultState(); return; }
+
+    state = s;
+    state.upg = state.upg || {};
+    ['fare', 'capacity', 'speed', 'trains', 'spawn', 'lines'].forEach(k => {
+      if (typeof state.upg[k] !== 'number') state.upg[k] = 0;
+    });
+    state.stats = state.stats || { delivered: 0, earned: 0, spent: 0 };
+    state.spots = state.spots || [];
+    if (!Array.isArray(state.lines)) state.lines = [];
+    while (state.lines.length < 5) state.lines.push(newLine(state.lines.length));
+    state.lines.forEach((l, i) => {
+      l.idx = i; l.color = COLORS[i]; l.name = NAMES[i];
+      if (!Array.isArray(l.edges)) {
+        l.edges = [];
+        if (Array.isArray(l.stationIds)) {          // migrate old linear lines
+          for (let k = 1; k < l.stationIds.length; k++) l.edges.push([l.stationIds[k - 1], l.stationIds[k]]);
+        }
       }
-      replenishSpots();
-    } else {
-      defaultState();
+      delete l.stationIds;
+      l.trains = Array.isArray(l.trains) ? l.trains : [];
+      rebuildLine(l);
+    });
+    state.stations.forEach(st => { st.passengers = st.passengers || []; if (typeof st.crowdT !== 'number') st.crowdT = 0; });
+    if (typeof state.nextId !== 'number') {
+      state.nextId = 1 + Math.max(0, ...state.stations.map(x => x.id), ...state.spots.map(x => x.id));
     }
+    replenishSpots();
   }
 
   // ---- input ----
@@ -634,7 +768,7 @@
     cv.addEventListener('pointermove', e => { mouse = toLocal(e); });
     cv.addEventListener('pointerleave', () => { mouse = null; });
 
-    document.addEventListener('keydown', e => { if (e.key === 'Escape' && editing >= 0) { editing = -1; renderLineCtrl(); } });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape' && editing >= 0) stopEdit(); });
 
     document.getElementById('bMute').addEventListener('click', e => {
       muted = !muted;
@@ -645,7 +779,7 @@
     document.getElementById('bCloseHelp').addEventListener('click', () => help.classList.add('hidden'));
     document.getElementById('bRestart').addEventListener('click', () => {
       defaultState();
-      spawnAcc = 0; coins = []; editing = -1;
+      spawnAcc = 0; coins = []; editing = -1; editFrom = null;
       document.getElementById('over').classList.add('hidden');
       updateSide(); renderLineCtrl(); save();
     });
