@@ -291,8 +291,8 @@
     for (let i = 0; i < 300; i++) {
       const x = 48 + Math.random() * (W - 96), y = 48 + Math.random() * (H - 96);
       let ok = true;
-      for (const s of state.stations) if (dist2(s, { x, y }) < 82 * 82) { ok = false; break; }
-      if (ok) for (const s of state.spots) if (dist2(s, { x, y }) < 72 * 72) { ok = false; break; }
+      for (const s of state.stations) if (dist2(s, { x, y }) < 94 * 94) { ok = false; break; }
+      if (ok) for (const s of state.spots) if (dist2(s, { x, y }) < 86 * 86) { ok = false; break; }
       if (ok) return { x, y };
     }
     return null;
@@ -461,13 +461,47 @@
   }
 
   // ---- rendering ----
-  function drawShape(x, y, r, shape) {
+  let _share = {};
+  function rebuildShare() {
+    _share = {};
+    for (let i = 0; i < state.lines.length && i < maxLines(); i++) {
+      state.lines[i].edges.forEach(e => {
+        const k = e[0] < e[1] ? e[0] + '_' + e[1] : e[1] + '_' + e[0];
+        (_share[k] = _share[k] || []).push(i);
+      });
+    }
+  }
+  // perpendicular shift so lines that share the same pair of stations run parallel
+  function edgeOffset(lineIdx, id0, id1) {
+    const k = id0 < id1 ? id0 + '_' + id1 : id1 + '_' + id0;
+    const arr = _share[k];
+    if (!arr || arr.length < 2) return 0;
+    return (arr.indexOf(lineIdx) - (arr.length - 1) / 2) * 6;
+  }
+  function perp(a, b, off) {
+    if (!off) return { x: 0, y: 0 };
+    const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1;
+    return { x: -dy / len * off, y: dx / len * off };
+  }
+  function label(txt, x, y, fill, size) {
+    ctx.font = 'bold ' + size + 'px system-ui';
+    ctx.textAlign = 'center';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = 3.5;
+    ctx.strokeStyle = 'rgba(10,13,20,0.92)';
+    ctx.strokeText(txt, x, y);
+    ctx.fillStyle = fill;
+    ctx.fillText(txt, x, y);
+  }
+
+  function drawShape(x, y, r, shape, outline) {
     ctx.beginPath();
     if (shape === 'circle') ctx.arc(x, y, r, 0, 7);
     else if (shape === 'square') ctx.rect(x - r, y - r, 2 * r, 2 * r);
     else if (shape === 'triangle') { ctx.moveTo(x, y - r); ctx.lineTo(x + r * 0.92, y + r * 0.72); ctx.lineTo(x - r * 0.92, y + r * 0.72); ctx.closePath(); }
     else if (shape === 'diamond') { ctx.moveTo(x, y - r); ctx.lineTo(x + r, y); ctx.lineTo(x, y + r); ctx.lineTo(x - r, y); ctx.closePath(); }
     else { for (let i = 0; i < 5; i++) { const a = -Math.PI / 2 + i * 2 * Math.PI / 5; ctx[i ? 'lineTo' : 'moveTo'](x + Math.cos(a) * r, y + Math.sin(a) * r); } ctx.closePath(); }
+    if (outline) { ctx.lineJoin = 'round'; ctx.lineWidth = outline; ctx.strokeStyle = 'rgba(10,13,20,0.9)'; ctx.stroke(); }
     ctx.fill();
   }
   function roundRect(x, y, w, h, r) {
@@ -486,24 +520,32 @@
     ctx.fillStyle = 'rgba(255,255,255,0.03)';
     for (let x = 40; x < W; x += 40) for (let y = 40; y < H; y += 40) ctx.fillRect(x, y, 1, 1);
 
-    // tracks
-    ctx.lineWidth = 6;
+    // tracks — dark casing, then colour; parallel offset where lines share a corridor
+    rebuildShare();
     ctx.lineCap = 'round';
-    for (let i = 0; i < state.lines.length && i < maxLines(); i++) {
-      const l = state.lines[i];
-      ctx.strokeStyle = l.color;
-      l.edges.forEach(e => {
-        const a = stationById(e[0]), b = stationById(e[1]);
-        if (!a || !b) return;
-        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
-      });
+    for (let pass = 0; pass < 2; pass++) {
+      ctx.lineWidth = pass === 0 ? 9 : 5.5;
+      for (let i = 0; i < state.lines.length && i < maxLines(); i++) {
+        const l = state.lines[i];
+        ctx.strokeStyle = pass === 0 ? '#0d1017' : l.color;
+        l.edges.forEach(e => {
+          const a = stationById(e[0]), b = stationById(e[1]);
+          if (!a || !b) return;
+          const o = perp(a, b, edgeOffset(i, e[0], e[1]));
+          ctx.beginPath();
+          ctx.moveTo(a.x + o.x, a.y + o.y);
+          ctx.lineTo(b.x + o.x, b.y + o.y);
+          ctx.stroke();
+        });
+      }
     }
     // rubber band while editing
     if (editing >= 0 && editFrom != null && mouse) {
       const s = stationById(editFrom);
       if (s) {
         ctx.strokeStyle = state.lines[editing].color;
-        ctx.setLineDash([6, 6]); ctx.globalAlpha = 0.6;
+        ctx.lineWidth = 4;
+        ctx.setLineDash([7, 7]); ctx.globalAlpha = 0.75;
         ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.lineTo(mouse.x, mouse.y); ctx.stroke();
         ctx.setLineDash([]); ctx.globalAlpha = 1;
       }
@@ -512,15 +554,14 @@
     // buyable spots
     state.spots.forEach(sp => {
       const aff = state.money >= sp.cost;
+      ctx.fillStyle = 'rgba(13,16,23,0.62)';
+      ctx.beginPath(); ctx.arc(sp.x, sp.y, 15, 0, 7); ctx.fill();
       ctx.setLineDash([4, 4]);
-      ctx.strokeStyle = aff ? '#3ad07a' : '#4a5468';
+      ctx.strokeStyle = aff ? '#3ad07a' : '#5b667c';
       ctx.lineWidth = 2;
       ctx.beginPath(); ctx.arc(sp.x, sp.y, 13, 0, 7); ctx.stroke();
       ctx.setLineDash([]);
-      ctx.fillStyle = aff ? '#8affc0' : '#7f8aa0';
-      ctx.font = 'bold 11px system-ui';
-      ctx.textAlign = 'center';
-      ctx.fillText('¥' + sp.cost, sp.x, sp.y + 27);
+      label('¥' + sp.cost, sp.x, sp.y + 28, aff ? '#8affc0' : '#9aa6ba', 11);
     });
 
     const editSet = editing >= 0 ? new Set(lineStationIds(state.lines[editing])) : null;
@@ -528,43 +569,62 @@
     // stations
     state.stations.forEach(s => {
       if (s.crowdT > 0) {
+        const frac = Math.min(1, s.crowdT / BASE.overLimit);
+        ctx.strokeStyle = 'rgba(10,13,20,0.85)';
+        ctx.lineWidth = 6;
+        ctx.beginPath(); ctx.arc(s.x, s.y, 19, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * frac); ctx.stroke();
         ctx.strokeStyle = '#ff4d4d';
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.arc(s.x, s.y, 18, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, s.crowdT / BASE.overLimit));
-        ctx.stroke();
+        ctx.lineWidth = 3.5;
+        ctx.beginPath(); ctx.arc(s.x, s.y, 19, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * frac); ctx.stroke();
       }
       if (editSet && editSet.has(s.id)) {
         ctx.strokeStyle = state.lines[editing].color;
-        ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.arc(s.x, s.y, 19, 0, 7); ctx.stroke();
+        ctx.lineWidth = 2.5;
+        ctx.beginPath(); ctx.arc(s.x, s.y, 20, 0, 7); ctx.stroke();
       }
+      // body: dark disc + light rim so it reads over any track colour
       ctx.fillStyle = '#0d1017';
-      ctx.beginPath(); ctx.arc(s.x, s.y, 14, 0, 7); ctx.fill();
+      ctx.beginPath(); ctx.arc(s.x, s.y, 15, 0, 7); ctx.fill();
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+      ctx.beginPath(); ctx.arc(s.x, s.y, 15, 0, 7); ctx.stroke();
       ctx.fillStyle = '#eef2f8';
       drawShape(s.x, s.y, 8, s.shape);
-      for (let k = 0; k < s.passengers.length && k < 6; k++) {
-        const ang = -Math.PI / 2 + (k - 2.5) * 0.34;
+
+      const pc = s.passengers.length;
+      const shown = Math.min(pc, 7);
+      ctx.fillStyle = pc > BASE.crowd ? '#ff9a5b' : '#ffd85e';
+      for (let k = 0; k < shown; k++) {
+        const ang = -Math.PI / 2 + (k - (shown - 1) / 2) * 0.3;
         const d = stationById(s.passengers[k].dest);
-        ctx.fillStyle = '#ffd85e';
-        drawShape(s.x + Math.cos(ang) * 24, s.y + Math.sin(ang) * 24, 4, d ? d.shape : 'circle');
+        drawShape(s.x + Math.cos(ang) * 26, s.y + Math.sin(ang) * 26, 4.3, d ? d.shape : 'circle', 1.6);
       }
-      if (s.passengers.length > 6) {
-        ctx.fillStyle = '#ffd85e';
-        ctx.font = 'bold 10px system-ui';
-        ctx.textAlign = 'center';
-        ctx.fillText('+' + (s.passengers.length - 6), s.x, s.y - 24);
-      }
+      if (pc > 7) label('+' + (pc - 7), s.x, s.y - 26, '#ffd85e', 10);
     });
 
     // selected station marker
     if (editing >= 0 && editFrom != null) {
       const s = stationById(editFrom);
       if (s) {
+        ctx.strokeStyle = 'rgba(10,13,20,0.8)';
+        ctx.lineWidth = 5.5;
+        ctx.beginPath(); ctx.arc(s.x, s.y, 23, 0, 7); ctx.stroke();
         ctx.strokeStyle = '#ffffff';
         ctx.lineWidth = 2.5;
-        ctx.beginPath(); ctx.arc(s.x, s.y, 22, 0, 7); ctx.stroke();
+        ctx.beginPath(); ctx.arc(s.x, s.y, 23, 0, 7); ctx.stroke();
       }
+    }
+
+    // tutorial highlight (under trains so a passing train never fully hides it)
+    const hl = tutHighlight();
+    if (hl) {
+      const r = 26 + Math.sin(state.time * 5) * 4;
+      ctx.strokeStyle = 'rgba(10,13,20,0.8)';
+      ctx.lineWidth = 6;
+      ctx.beginPath(); ctx.arc(hl.x, hl.y, r, 0, 7); ctx.stroke();
+      ctx.strokeStyle = '#ffd85e';
+      ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(hl.x, hl.y, r, 0, 7); ctx.stroke();
     }
 
     // trains
@@ -573,37 +633,27 @@
       if (!l.edges.length) continue;
       l.trains.forEach(tr => {
         const pos = trainXY(l, tr);
+        const o = perp(pos.a, pos.b, edgeOffset(i, tr.a, tr.b));
         const ang = Math.atan2(pos.b.y - pos.a.y, pos.b.x - pos.a.x);
         ctx.save();
-        ctx.translate(pos.x, pos.y);
+        ctx.translate(pos.x + o.x, pos.y + o.y);
         ctx.rotate(ang);
-        ctx.fillStyle = l.color;
         roundRect(-12, -6, 24, 12, 3);
+        ctx.fillStyle = l.color;
         ctx.fill();
-        ctx.fillStyle = 'rgba(255,255,255,0.92)';
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+        ctx.stroke();
+        ctx.fillStyle = 'rgba(255,255,255,0.96)';
         for (let k = 0; k < tr.load.length && k < 6; k++) ctx.fillRect(-9 + k * 3.4, -1.5, 2, 3);
         ctx.restore();
       });
     }
 
-    // tutorial highlight
-    const hl = tutHighlight();
-    if (hl) {
-      const r = 24 + Math.sin(state.time * 5) * 4;
-      ctx.strokeStyle = '#ffd85e';
-      ctx.lineWidth = 3;
-      ctx.globalAlpha = 0.9;
-      ctx.beginPath(); ctx.arc(hl.x, hl.y, r, 0, 7); ctx.stroke();
-      ctx.globalAlpha = 1;
-    }
-
     // coins
     coins.forEach(c => {
       ctx.globalAlpha = Math.max(0, 1 - c.t / 1.1);
-      ctx.fillStyle = '#ffd85e';
-      ctx.font = 'bold 13px system-ui';
-      ctx.textAlign = 'center';
-      ctx.fillText('+¥' + c.val, c.x, c.y);
+      label('+¥' + c.val, c.x, c.y, '#ffe17a', 13);
       ctx.globalAlpha = 1;
     });
 
