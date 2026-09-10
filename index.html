@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>METRO TYCOON</title>
+<meta name="description" content="初期資金100で駅を買い、駅と駅を路線でつないで、走る電車で稼ぐ Mini Metro風の鉄道経営ゲーム。アップグレードで路線網を拡大しよう。">
+<link rel="canonical" href="https://kaikomziu.github.io/metro-tycoon/">
+<meta name="robots" content="index,follow">
+<meta property="og:type" content="website">
+<meta property="og:title" content="METRO TYCOON">
+<meta property="og:description" content="駅を買って路線をつなぎ、走る電車で稼ぐ Mini Metro風の鉄道経営ゲーム。">
+<meta property="og:url" content="https://kaikomziu.github.io/metro-tycoon/">
+<meta name="theme-color" content="#0d1017">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app">
+  <header id="hud">
+    <div class="brand">METRO&nbsp;TYCOON</div>
+    <div class="stat"><span class="k">資金</span><b id="hMoney">¥100</b></div>
+    <div class="stat"><span class="k">経過</span><b id="hTime">0:00</b></div>
+    <div class="stat"><span class="k">駅</span><b id="hSta">2</b></div>
+    <div class="stat"><span class="k">列車</span><b id="hTrain">0</b></div>
+    <div class="stat"><span class="k">待ち客</span><b id="hWait">0</b></div>
+    <div class="stat"><span class="k">輸送</span><b id="hDeliv">0</b></div>
+    <div class="sp"></div>
+    <button id="bMute" title="サウンド">🔊</button>
+    <button id="bHelp" title="遊び方">❓</button>
+  </header>
+
+  <div id="main">
+    <div id="stage">
+      <canvas id="cv" width="960" height="620"></canvas>
+      <div id="linectrl"></div>
+    </div>
+    <aside id="side"></aside>
+  </div>
+</div>
+
+<div id="over" class="ov hidden">
+  <div class="card">
+    <h2>ダイヤ崩壊！</h2>
+    <p>混雑した駅がパンクしてしまった…</p>
+    <div id="overstats"></div>
+    <button id="bRestart">もう一度あそぶ</button>
+  </div>
+</div>
+
+<div id="help" class="ov hidden">
+  <div class="card">
+    <h2>遊び方</h2>
+    <ul>
+      <li><b>路線を敷く：</b>駅をタップ→別の駅をタップでつながります。終点をもう一度タップ、または「完了」で確定。</li>
+      <li><b>電車：</b>2駅以上つなぐと自動で走り出し、乗客を運ぶたびに運賃が入ります。運行するだけでも少し稼げます。</li>
+      <li><b>駅を買う：</b>点線の丸は購入できる駅。タップで購入（資金が必要）。駅を増やして路線を伸ばすほど乗客と運賃が増えます。</li>
+      <li><b>混雑：</b>乗客が溢れた駅を放置すると赤いリングが一周してゲームオーバー。増発・大型化・新規路線で捌きましょう。</li>
+      <li><b>セーブ：</b>自動保存されます。</li>
+    </ul>
+    <div id="changelog"></div>
+    <button id="bCloseHelp">とじる</button>
+  </div>
+</div>
+
+<script src="js/version.js"></script>
+<script src="js/game.js"></script>
+</body>
+</html>
