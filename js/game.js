@@ -3,7 +3,7 @@
 
   // ---- constants ----
   const W = 960, H = 620;               // canvas / viewport resolution (fixed)
-  const WORLD_W = 1500, WORLD_H = 950;  // game world is bigger than the viewport; pan + zoom to explore it
+  const WORLD_W = 2200, WORLD_H = 1400;  // game world is bigger than the viewport; pan + zoom to explore it
   const SHAPES = ['circle', 'triangle', 'square', 'diamond', 'pentagon'];
   const COLORS = ['#ff5d75', '#5b8cff', '#3ddc97', '#ffc94d', '#b98bff'];
   const NAMES  = ['1号線', '2号線', '3号線', '4号線', '5号線'];
@@ -153,7 +153,14 @@
     return st;
   }
   function spotCost() {
-    const base = Math.round(55 * Math.pow(1.34, Math.max(0, state.stations.length - 2)));
+    // steep exponential ramp for the first ~30 stations (matches the original
+    // pacing for story-length runs), then a much gentler tail so long eternal-
+    // mode sessions can keep buying stations past #100 instead of the price
+    // going astronomical and effectively hard-stalling growth.
+    const n = Math.max(0, state.stations.length - 2);
+    const ramp = Math.min(n, 30);
+    const tail = Math.max(0, n - 30);
+    const base = Math.round(55 * Math.pow(1.34, ramp) * Math.pow(1.045, tail));
     const discount = Math.pow(0.94, (state.upg && state.upg.discount) || 0);
     const pdiscount = curMode === 'eternal' ? Math.pow(0.97, prestigeLv('build')) : 1;
     return Math.max(10, Math.round(base * discount * pdiscount));
@@ -390,15 +397,29 @@
   }
 
   // ---- buying ----
+  // rejection-sample a free spot for a new station. As the world fills up (many
+  // stations bought in a long eternal/idle run), progressively relax the minimum
+  // spacing instead of giving up — growth should never hard-stall just because
+  // the map got crowded. The last tier always succeeds.
   function randomPos() {
-    for (let i = 0; i < 300; i++) {
-      const x = 48 + rand() * (WORLD_W - 96), y = 48 + rand() * (WORLD_H - 96);
-      let ok = true;
-      for (const s of state.stations) if (dist2(s, { x, y }) < 94 * 94) { ok = false; break; }
-      if (ok) for (const s of state.spots) if (dist2(s, { x, y }) < 86 * 86) { ok = false; break; }
-      if (ok) return { x, y };
+    const tiers = [
+      { station: 94, spot: 86, tries: 250 },
+      { station: 60, spot: 52, tries: 250 },
+      { station: 34, spot: 30, tries: 250 },
+      { station: 20, spot: 18, tries: 200 },
+    ];
+    for (const t of tiers) {
+      for (let i = 0; i < t.tries; i++) {
+        const x = 48 + rand() * (WORLD_W - 96), y = 48 + rand() * (WORLD_H - 96);
+        let ok = true;
+        for (const s of state.stations) if (dist2(s, { x, y }) < t.station * t.station) { ok = false; break; }
+        if (ok) for (const s of state.spots) if (dist2(s, { x, y }) < t.spot * t.spot) { ok = false; break; }
+        if (ok) return { x, y };
+      }
     }
-    return null;
+    // last resort: place anywhere in-bounds even if it overlaps a little —
+    // better than silently refusing to ever offer another station
+    return { x: 48 + rand() * (WORLD_W - 96), y: 48 + rand() * (WORLD_H - 96) };
   }
   function replenishSpots() {
     let guard = 0;
