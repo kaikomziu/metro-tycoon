@@ -117,6 +117,14 @@ body{-webkit-user-select:none;user-select:none;overflow-x:hidden}
 #camCtrl button:hover{background:rgba(255,255,255,.12);transform:translateY(-1px)}
 
 #linectrl{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:12px auto 0;max-width:960px}
+.quick-actions{display:flex;gap:8px;flex-wrap:wrap;flex-basis:100%}
+.quick-actions button{
+  background:linear-gradient(135deg,rgba(61,220,151,.16),rgba(91,140,255,.14));
+  border:1px solid rgba(61,220,151,.32);color:var(--text);
+  border-radius:9px;padding:7px 13px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;
+  transition:transform .15s ease,filter .15s ease;
+}
+.quick-actions button:hover{transform:translateY(-1px);filter:brightness(1.12)}
 #linectrl .lslot{
   display:flex;align-items:center;gap:8px;
   background:var(--panel);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);

@@ -406,6 +406,19 @@
     save();
     return st;
   }
+  function buyAllSpots() {
+    if (state.over) return;
+    let bought = 0, spent = 0, guard = 0;
+    while (guard++ < 60) {
+      const cheapest = state.spots.reduce((a, b) => (!a || b.cost < a.cost ? b : a), null);
+      if (!cheapest || state.money < cheapest.cost) break;
+      const cost = cheapest.cost;
+      if (!buySpot(cheapest)) break;
+      bought++; spent += cost;
+    }
+    if (bought > 0) showToast('🏗️ ' + bought + '駅を購入（合計¥' + spent + '）');
+    else showToast('資金が足りません');
+  }
   // how many levels of `u` are affordable right now, buying at most `want` of them
   function bulkPreview(u) {
     const lv = state.upg[u.key];
@@ -449,6 +462,47 @@
     return -1;
   }
   function stopEdit() { editing = -1; editFrom = null; renderLineCtrl(); }
+
+  // greedily wires every owned station into one network on the current
+  // (or next available) line — nearest-neighbour, like a mini spanning tree
+  function autoConnect() {
+    if (state.over) return;
+    if (state.stations.length < 2) { showToast('駅が足りません'); return; }
+    let li = editing;
+    if (li < 0) { li = firstEmptyLine(); if (li < 0) li = 0; }
+    if (li >= maxLines()) li = maxLines() - 1;
+    const line = state.lines[li];
+    const connectedIds = new Set(lineStationIds(line));
+    if (!connectedIds.size) connectedIds.add(state.stations[0].id);
+
+    let added = 0, guard = 0;
+    while (connectedIds.size < state.stations.length && guard++ < 400) {
+      let bestFrom = null, bestTo = null, bestDist = Infinity;
+      connectedIds.forEach(c => {
+        const cs = stationById(c);
+        if (!cs) return;
+        state.stations.forEach(s => {
+          if (connectedIds.has(s.id)) return;
+          const d = dist2(cs, s);
+          if (d < bestDist) { bestDist = d; bestFrom = c; bestTo = s.id; }
+        });
+      });
+      if (bestTo == null) break;
+      if (!edgeExists(line, bestFrom, bestTo)) { line.edges.push([bestFrom, bestTo]); added++; }
+      connectedIds.add(bestTo);
+    }
+
+    if (added > 0) {
+      rebuildLine(line);
+      editing = li; editFrom = null;
+      renderLineCtrl();
+      showToast('🔗 ' + added + '駅を自動接続（' + line.name + '）');
+      beep(660, 0.12, 0.045);
+      save();
+    } else {
+      showToast('これ以上つなげる駅がありません');
+    }
+  }
 
   function segDist(px, py, a, b) {
     const dx = b.x - a.x, dy = b.y - a.y;
@@ -1164,7 +1218,9 @@
   }
 
   function renderLineCtrl() {
-    let html = '';
+    let html = '<div class="quick-actions">' +
+      '<button id="buyAllBtn">🏗️ 買える駅を全部買う</button>' +
+      '<button id="autoConnectBtn">🔗 自動接続</button></div>';
     for (let i = 0; i < maxLines(); i++) {
       const l = state.lines[i];
       html += '<button class="lslot' + (editing === i ? ' on' : '') + '" data-i="' + i + '" style="--c:' + l.color + '">' +
@@ -1176,6 +1232,8 @@
         '<div class="palette">' + PALETTE.map(c => '<button class="swatch" data-c="' + c + '" style="--c:' + c + '"></button>').join('') + '</div>';
     }
     linectrl.innerHTML = html;
+    document.getElementById('buyAllBtn').addEventListener('click', buyAllSpots);
+    document.getElementById('autoConnectBtn').addEventListener('click', autoConnect);
     linectrl.querySelectorAll('.lslot').forEach(b => b.addEventListener('click', () => {
       const i = +b.dataset.i;
       if (editing === i) { stopEdit(); }

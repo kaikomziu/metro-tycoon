@@ -22,7 +22,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap">
-<link rel="stylesheet" href="css/style.css?v=1.9.0">
+<link rel="stylesheet" href="css/style.css?v=1.10.0">
 </head>
 <body>
 <div id="app">
@@ -120,6 +120,7 @@
       <li><b>デイリーチャレンジ：</b>📅ボタンから、今日だけの共通マップで5分間の売上を競える早業モードに挑戦できます（ゲームオーバーなし、専用ランキングつき）。</li>
       <li><b>BGM：</b>🎵ボタンで2曲を切替・オフにできます。</li>
       <li><b>ニューゲーム+：</b>ストーリークリア後、「ニューゲーム+で再挑戦」でアップグレード初期Lvボーナスを引き継いだ次の周回を始められます。</li>
+      <li><b>まとめ買い・自動接続：</b>マップ下のツールバーの「🏗️ 買える駅を全部買う」で安い駅から自動購入、「🔗 自動接続」で編集中（未選択なら空いている）路線にまだつながっていない駅を近い順に自動でつなげます。</li>
     </ul>
     <div id="changelog"></div>
     <button id="bTut">チュートリアルをもう一度</button>
@@ -189,9 +190,9 @@
 </div>
 
 <script src="js/achievements.js?v=1.7.0"></script>
-<script src="js/ranking.js?v=1.9.0"></script>
-<script src="js/version.js?v=1.9.0"></script>
-<script src="js/game.js?v=1.9.0"></script>
+<script src="js/ranking.js?v=1.10.0"></script>
+<script src="js/version.js?v=1.10.0"></script>
+<script src="js/game.js?v=1.10.0"></script>
 <script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(() => {}); });
