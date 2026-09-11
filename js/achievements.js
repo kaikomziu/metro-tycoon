@@ -43,5 +43,7 @@ window.METRO_ACHIEVEMENTS = [
   { id: 'et30',   cat: 'エターナル', name: '終わらない旅',   desc: 'エターナルモードで30分プレイする', check: c => c.curMode === 'eternal' && c.state.time >= 1800 },
   { id: 'etMoney', cat: 'エターナル', name: '永遠の資産',    desc: 'エターナルモードで資金¥1,000,000を保有する', check: c => c.curMode === 'eternal' && c.state.money >= 1000000 },
   { id: 'etStations', cat: 'エターナル', name: '無限都市',   desc: 'エターナルモードで駅を15保有する', check: c => c.curMode === 'eternal' && c.state.stations.length >= 15 },
+  { id: 'rebirth1', cat: 'エターナル', name: '転生者',       desc: '転生を1回行う', check: c => (c.prestigeCount || 0) >= 1 },
+  { id: 'rebirth5', cat: 'エターナル', name: '転生の匠',     desc: '転生を5回行う', check: c => (c.prestigeCount || 0) >= 5 },
   { id: 'time60', cat: 'その他', name: '一時間耐久',        desc: '1時間プレイする（累計ではなく1回のプレイで）', check: c => c.state.time >= 3600 },
 ];

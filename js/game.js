@@ -85,6 +85,18 @@
     eternal: { icon: '♾️', label: 'エターナルモード', desc: '目標もエンディングもなし。混雑してもゲームオーバーにならない、終わりのない経営を気ままに楽しむモード。' },
   };
 
+  // ---- eternal-only prestige ("転生") ----
+  // account-wide, shared across all 3 eternal slots — mirrors the achievement system's persistence model
+  const PTREE = [
+    { key: 'speed', name: '速度の遺産',     desc: '列車速度 +4%/Lv（永続）',           max: 10, per: 0.04 },
+    { key: 'fare',  name: '運賃の遺産',     desc: '運賃 +4%/Lv（永続）',               max: 10, per: 0.04 },
+    { key: 'spawn', name: '需要の遺産',     desc: '乗客の発生 +4%/Lv（永続）',         max: 10, per: 0.04 },
+    { key: 'build', name: '建設の遺産',     desc: '新駅の価格 -3%/Lv（永続）',         max: 8,  per: 0.03 },
+    { key: 'start', name: '開始資金の遺産', desc: '転生後の開始資金 +¥100/Lv',        max: 10, per: 100 },
+    { key: 'luck',  name: '幸運の遺産',     desc: 'VIP乗客イベントが起きやすくなる',  max: 5,  per: 1 },
+  ];
+  const ptreeCost = lv => lv + 1;   // 栄光ポイントでの購入コスト(累計max=55pt)
+
   // ---- state ----
   let state, cv, ctx, side, linectrl;
   let curMode = 'story', curSlot = 1;
@@ -102,6 +114,7 @@
   let simSpeed = 1;               // 1x / 2x / 3x fast-forward, not saved with the slot
   let skin = 'default';           // cosmetic theme, account-wide (localStorage)
   let achUnlocked = {};           // achievement id -> unlocked timestamp, account-wide
+  let prestige = { gp: 0, tree: {}, count: 0 };  // 転生: 栄光ポイント + 永続ツリー, account-wide
   let eventAcc = 0;
   let camera = { x: WORLD_W / 2, y: WORLD_H / 2, zoom: 0.72 };   // pan/zoom over the world, not persisted
   let buyMode = 1;                // 1 | 5 | 'max' — how many upgrade levels a click buys, account-wide (localStorage)
@@ -120,7 +133,10 @@
   const dist  = (a, b) => Math.sqrt(dist2(a, b));
   const stationById = id => state.stations.find(s => s.id === id);
   function eventActive(type) { return state.event && state.event.type === type && state.time < state.event.until; }
-  const trainSpeed = () => BASE.speed * (1 + state.upg.speed * 0.22) * (eventActive('trouble') ? 0.55 : 1);
+  const prestigeLv = key => (prestige.tree && prestige.tree[key]) || 0;
+  // eternal-mode-only permanent multiplier from the prestige tree; 1 (no-op) everywhere else
+  const prestigeMult = (key, per) => (curMode === 'eternal' ? 1 + prestigeLv(key) * per : 1);
+  const trainSpeed = () => BASE.speed * (1 + state.upg.speed * 0.22) * (eventActive('trouble') ? 0.55 : 1) * prestigeMult('speed', 0.04);
   const capacity   = () => BASE.capacity + state.upg.capacity * 3;
   const trainsPerLine = () => 1 + state.upg.trains;
   const maxLines   = () => 1 + state.upg.lines;
@@ -139,12 +155,14 @@
   function spotCost() {
     const base = Math.round(55 * Math.pow(1.34, Math.max(0, state.stations.length - 2)));
     const discount = Math.pow(0.94, (state.upg && state.upg.discount) || 0);
-    return Math.max(10, Math.round(base * discount));
+    const pdiscount = curMode === 'eternal' ? Math.pow(0.97, prestigeLv('build')) : 1;
+    return Math.max(10, Math.round(base * discount * pdiscount));
   }
 
   function defaultState() {
+    const startMoney = 100 + (curMode === 'eternal' ? prestigeLv('start') * 100 : 0);
     state = {
-      money: 100, time: 0, over: false,
+      money: startMoney, time: 0, over: false,
       chapter: 0, cleared: false, ngPlus: 0, event: null, _nearMiss: false,
       stations: [], spots: [], lines: [],
       upg: {
@@ -283,7 +301,7 @@
   function fareFor(hops) {
     hops = Math.max(1, hops);
     const vip = eventActive('vip') ? 1.8 : 1;
-    return Math.round(BASE.fare * (1 + state.upg.fare * 0.5) * hops * (1 + 0.18 * (hops - 1)) * vip);
+    return Math.round(BASE.fare * (1 + state.upg.fare * 0.5) * hops * (1 + 0.18 * (hops - 1)) * vip * prestigeMult('fare', 0.04));
   }
 
   function trainXY(line, tr) {
@@ -584,6 +602,7 @@
     spawnAcc += dt;
     let iv = BASE.spawn / (1 + state.upg.spawn * 0.35 + 0.10 * Math.max(0, state.stations.length - 2));
     if (eventActive('rush')) iv /= 2.2;
+    iv /= prestigeMult('spawn', 0.04);
     let guard = 0;
     while (spawnAcc >= iv && guard++ < 20) { spawnAcc -= iv; trySpawn(); }
 
@@ -623,8 +642,9 @@
     if (eventAcc < 75) return;
     eventAcc = 0;
     if (Math.random() < 0.55) return;            // not every check triggers one
-    const types = Object.keys(EVENT_INFO);
-    const type = types[(Math.random() * types.length) | 0];
+    const pool = ['rush', 'vip', 'trouble'];
+    if (curMode === 'eternal') for (let i = 0; i < prestigeLv('luck'); i++) pool.push('vip'); // 幸運の遺産: VIPが出やすくなる
+    const type = pool[(Math.random() * pool.length) | 0];
     const dur = 18 + Math.random() * 12;
     state.event = { type, until: state.time + dur };
     showToast(EVENT_INFO[type].icon + ' ' + EVENT_INFO[type].label);
@@ -641,7 +661,7 @@
   function achCount() { return Object.keys(achUnlocked).length; }
   function checkAchievements() {
     if (!window.METRO_ACHIEVEMENTS) return;
-    const ctx = { state, curMode, activeLines: activeLineCount(), edges: totalEdges(), trains: totalTrains(), cap: capacity() };
+    const ctx = { state, curMode, activeLines: activeLineCount(), edges: totalEdges(), trains: totalTrains(), cap: capacity(), prestigeCount: prestige.count || 0 };
     let newly = null;
     for (const a of window.METRO_ACHIEVEMENTS) {
       if (achUnlocked[a.id]) continue;
@@ -655,6 +675,76 @@
       beep(1046, 0.14, 0.05);
       renderAch();
     }
+  }
+
+  // ---- prestige ("転生") — eternal mode only ----
+  function loadPrestige() {
+    try {
+      const p = JSON.parse(localStorage.getItem('metro_prestige_v1') || '{}');
+      prestige = { gp: p.gp || 0, tree: p.tree || {}, count: p.count || 0 };
+    } catch (e) { prestige = { gp: 0, tree: {}, count: 0 }; }
+  }
+  function savePrestige() {
+    try { localStorage.setItem('metro_prestige_v1', JSON.stringify(prestige)); } catch (e) { /* ignore */ }
+  }
+  function prestigePreviewGp() {
+    return Math.floor(Math.sqrt(Math.max(0, state.stats.earned) / 10000));
+  }
+  function buyPTree(key) {
+    const def = PTREE.find(t => t.key === key);
+    if (!def) return;
+    const lv = prestigeLv(key);
+    if (lv >= def.max) return;
+    const cost = ptreeCost(lv);
+    if (prestige.gp < cost) { showToast('栄光ポイントが足りません'); beep(200, 0.12, 0.03); return; }
+    prestige.gp -= cost;
+    prestige.tree[key] = lv + 1;
+    savePrestige();
+    beep(700, 0.12, 0.045);
+    renderPrestige();
+  }
+  function doRebirth() {
+    if (curMode !== 'eternal') return;
+    const gp = prestigePreviewGp();
+    if (gp <= 0) { showToast('もっと稼いでから転生しよう'); return; }
+    prestige.gp += gp;
+    prestige.count = (prestige.count || 0) + 1;
+    savePrestige();
+    defaultState();   // curMode is still 'eternal' here, so the new run gets the prestige bonuses
+    editing = -1; editFrom = null; coins = []; spawnAcc = 0; toastT = 0; dispMoney = null;
+    camera = { x: WORLD_W / 2, y: WORLD_H / 2, zoom: 0.72 };
+    buildSide(); updateSide(); renderLineCtrl(); renderChapterUI(); updateModeBadge();
+    save();
+    checkAchievements();
+    showToast('🌟 転生完了！+' + gp + 'pt 獲得（累計' + prestige.gp + 'pt）');
+    beep(1046, 0.2, 0.06);
+  }
+  function renderPrestige() {
+    const statsEl = document.getElementById('prestigeStats');
+    if (!statsEl) return;
+    const preview = curMode === 'eternal' ? prestigePreviewGp() : 0;
+    statsEl.innerHTML = '保有：🌟 ' + prestige.gp + 'pt　転生回数：' + (prestige.count || 0) + '回' +
+      (curMode === 'eternal'
+        ? '<br>今転生すると：<b>+' + preview + 'pt</b>'
+        : '<br>（エターナルモードを開いているときだけ転生できます）');
+    const rebirthBtn = document.getElementById('bRebirth');
+    if (rebirthBtn) rebirthBtn.disabled = !(curMode === 'eternal' && preview > 0);
+    const confirmBox = document.getElementById('rebirthConfirm');
+    if (confirmBox) confirmBox.hidden = true;
+
+    const grid = document.getElementById('ptreeGrid');
+    if (!grid) return;
+    grid.innerHTML = PTREE.map(t => {
+      const lv = prestigeLv(t.key);
+      const maxed = lv >= t.max;
+      const cost = ptreeCost(lv);
+      return '<div class="ach-card' + (lv > 0 ? ' done' : '') + '">' +
+        '<b>' + t.name + '</b><p>' + t.desc + '</p>' +
+        '<div class="uplv">Lv ' + lv + '/' + t.max + '</div>' +
+        '<button class="upbtn ptbtn" data-k="' + t.key + '"' + (maxed || prestige.gp < cost ? ' disabled' : '') + '>' +
+        (maxed ? 'MAX' : '🌟' + cost) + '</button></div>';
+    }).join('');
+    grid.querySelectorAll('.ptbtn').forEach(b => b.addEventListener('click', () => buyPTree(b.dataset.k)));
   }
 
   function gameOver() {
@@ -830,11 +920,11 @@
   }
   function startDaily() {
     if (!preDaily) preDaily = { state, curMode, curSlot };
+    curMode = 'daily'; curSlot = 0;   // set before defaultState() so eternal prestige bonuses never leak into the daily map
     const seed = todaySeed();
     _rng = mulberry32(seed);
     defaultState();
     _rng = Math.random;
-    curMode = 'daily'; curSlot = 0;
     dailyDone = false;
     editing = -1; editFrom = null; coins = []; spawnAcc = 0; toastT = 0; dispMoney = null;
     camera = { x: WORLD_W / 2, y: WORLD_H / 2, zoom: 0.72 };
@@ -1436,6 +1526,8 @@
     save();
   }
   function updateModeBadge() {
+    const pb = document.getElementById('bPrestige');
+    if (pb) pb.hidden = curMode !== 'eternal';
     const b = document.getElementById('bSlots');
     if (!b) return;
     if (curMode === 'daily') { b.textContent = '📅 デイリー中'; return; }
@@ -1544,6 +1636,7 @@
 
     // account-wide meta: achievements, unlocked skin, fast-forward speed
     loadAch();
+    loadPrestige();
     try {
       const sv = localStorage.getItem('metro_skin');
       if (sv && SKINS.some(s => s.key === sv && achCount() >= s.need)) skin = sv;
@@ -1636,6 +1729,13 @@
     const rankEl = document.getElementById('rank');
     document.getElementById('bRank').addEventListener('click', () => { rankEl.classList.remove('hidden'); renderRank(); });
     document.getElementById('bCloseRank').addEventListener('click', () => rankEl.classList.add('hidden'));
+
+    const prestigeEl = document.getElementById('prestige');
+    document.getElementById('bPrestige').addEventListener('click', () => { renderPrestige(); prestigeEl.classList.remove('hidden'); });
+    document.getElementById('bClosePrestige').addEventListener('click', () => prestigeEl.classList.add('hidden'));
+    document.getElementById('bRebirth').addEventListener('click', () => { document.getElementById('rebirthConfirm').hidden = false; });
+    document.getElementById('bRebirthNo').addEventListener('click', () => { document.getElementById('rebirthConfirm').hidden = true; });
+    document.getElementById('bRebirthYes').addEventListener('click', () => { doRebirth(); prestigeEl.classList.add('hidden'); });
 
     document.getElementById('zoomIn').addEventListener('click', () => zoomStep(1));
     document.getElementById('zoomOut').addEventListener('click', () => zoomStep(-1));
