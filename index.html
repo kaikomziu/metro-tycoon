@@ -12,7 +12,7 @@
 <meta property="og:description" content="駅を買って路線をつなぎ、走る電車で稼ぐ Mini Metro風の鉄道経営ゲーム。">
 <meta property="og:url" content="https://kaikomziu.github.io/metro-tycoon/">
 <meta name="theme-color" content="#0d1017">
-<link rel="stylesheet" href="css/style.css?v=1.3.0">
+<link rel="stylesheet" href="css/style.css?v=1.4.0">
 </head>
 <body>
 <div id="app">
@@ -25,9 +25,12 @@
     <div class="stat"><span class="k">待ち客</span><b id="hWait">0</b></div>
     <div class="stat"><span class="k">輸送</span><b id="hDeliv">0</b></div>
     <div class="sp"></div>
+    <button id="bSlots" title="モード・セーブ管理">📖 スロット1</button>
     <button id="bMute" title="サウンド">🔊</button>
     <button id="bHelp" title="遊び方">❓</button>
   </header>
+
+  <div id="chapterBar" hidden></div>
 
   <div id="main">
     <div id="stage">
@@ -57,6 +60,15 @@
   </div>
 </div>
 
+<div id="clear" class="ov hidden">
+  <div class="card">
+    <h2>🏙️ 大都市、完成。</h2>
+    <p>小さな2駅の路線から始まった会社が、ついに一大都市鉄道網を築き上げた。おめでとう、社長。</p>
+    <div id="clearstats"></div>
+    <button id="bClearContinue">このまま経営を続ける</button>
+  </div>
+</div>
+
 <div id="help" class="ov hidden">
   <div class="card">
     <h2>遊び方</h2>
@@ -64,8 +76,8 @@
       <li><b>路線を敷く：</b>駅をタップして選択（白い輪）→ もう一つの駅をタップでつながります。同じ駅からさらに別の駅へつなげば枝分かれ（1駅→2駅、3駅→1駅と2駅…）も自由。線路をタップすると撤去。</li>
       <li><b>電車：</b>線路がつながると自動で走り出し、分岐点では待っている客／目的地のある方へ進みます。乗客を運ぶたびに運賃、運行するだけでも少し稼げます。線路を増やすと列車も自動で増えます。</li>
       <li><b>駅を買う：</b>点線の丸は購入できる駅。タップで購入（資金が必要）。駅を増やして路線を伸ばすほど乗客と運賃が増えます。</li>
-      <li><b>混雑：</b>乗客が溢れた駅を放置すると赤いリングが一周してゲームオーバー。増発・大型化・新規路線で捌きましょう。</li>
-      <li><b>セーブ：</b>自動保存されます。</li>
+      <li><b>2つのモード：</b>📖 ストーリーモードは6章の目標をクリアしてエンディングを目指す（混雑放置でゲームオーバー）。♾️ エターナルモードは目標もゲームオーバーもなし、気ままに経営できる。ヘッダーの「📖/♾️ スロット」ボタンで切り替え。</li>
+      <li><b>セーブ：</b>モードごとに3つのセーブ枠。自動保存され、スロット管理画面でいつでも切替・削除できます（削除は確認フレーズの入力が必要）。</li>
     </ul>
     <div id="changelog"></div>
     <button id="bTut">チュートリアルをもう一度</button>
@@ -73,7 +85,20 @@
   </div>
 </div>
 
-<script src="js/version.js?v=1.3.0"></script>
-<script src="js/game.js?v=1.3.0"></script>
+<div id="slots" class="ov hidden">
+  <div class="card wide">
+    <h2>モード・セーブ管理</h2>
+    <div class="mode-tabs">
+      <button class="mtab" data-m="story">📖 ストーリーモード</button>
+      <button class="mtab" data-m="eternal">♾️ エターナルモード</button>
+    </div>
+    <p id="modeDesc" class="mode-desc"></p>
+    <div id="slotGrid" class="slot-grid"></div>
+    <button id="bCloseSlots">とじる</button>
+  </div>
+</div>
+
+<script src="js/version.js?v=1.4.0"></script>
+<script src="js/game.js?v=1.4.0"></script>
 </body>
 </html>

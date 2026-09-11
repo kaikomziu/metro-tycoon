@@ -6,7 +6,10 @@
   const SHAPES = ['circle', 'triangle', 'square', 'diamond', 'pentagon'];
   const COLORS = ['#ff5a4e', '#3d8bff', '#2fc06b', '#ffb02e', '#c76bff'];
   const NAMES  = ['1号線', '2号線', '3号線', '4号線', '5号線'];
-  const SAVE_KEY = 'metro_tycoon_v1';
+  const MODES = ['story', 'eternal'];
+  const SLOTS = [1, 2, 3];
+  const RESET_PHRASE = 'metro tycoon reset';
+  const saveKey = (m, slot) => 'metro_tycoon_' + m + '_' + slot;
 
   const BASE = {
     speed: 66,        // px/sec
@@ -42,8 +45,24 @@
       manual: true, last: true },
   ];
 
+  const CHAPTERS = [
+    { name: '開業', desc: '路線を1本、線路でつなごう', check: () => totalEdges() >= 1 },
+    { name: 'はじめての乗客', desc: '乗客を10人、目的地まで送り届けよう', check: () => state.stats.delivered >= 10 },
+    { name: '路線拡大', desc: '駅を5つ保有しよう', check: () => state.stations.length >= 5 },
+    { name: '複数路線体制', desc: '2つの路線を同時に走らせよう', check: () => activeLineCount() >= 2 },
+    { name: '黒字経営', desc: '累計売上¥3000を達成しよう', check: () => state.stats.earned >= 3000 },
+    { name: '大都市計画', desc: '駅10・輸送200人・路線3本の巨大ネットワークを完成させよう', check: () => state.stations.length >= 10 && state.stats.delivered >= 200 && activeLineCount() >= 3 },
+  ];
+
+  const MODE_INFO = {
+    story: { icon: '📖', label: 'ストーリーモード', desc: '小さな2駅の路線から大都市鉄道網へ。6つの目標を達成してエンディングを目指す。乗客が溢れた駅を放置すると経営破綻（ゲームオーバー）。' },
+    eternal: { icon: '♾️', label: 'エターナルモード', desc: '目標もエンディングもなし。混雑してもゲームオーバーにならない、終わりのない経営を気ままに楽しむモード。' },
+  };
+
   // ---- state ----
   let state, cv, ctx, side, linectrl;
+  let curMode = 'story', curSlot = 1;
+  let slotsTabMode = 'story';
   let tut = { active: false, step: 0 };
   let tutEl, tutText, tutStepEl, tutNextBtn;
   let editing = -1;      // index of line being edited, or -1
@@ -77,6 +96,7 @@
   function defaultState() {
     state = {
       money: 100, time: 0, over: false,
+      chapter: 0, cleared: false,
       stations: [], spots: [], lines: [],
       upg: { fare: 0, capacity: 0, speed: 0, trains: 0, spawn: 0, lines: 0 },
       stats: { delivered: 0, earned: 0, spent: 0 },
@@ -110,6 +130,11 @@
   }
   function totalEdges() {
     return state.lines.reduce((a, l) => a + l.edges.length, 0);
+  }
+  function activeLineCount() {
+    let n = 0;
+    for (let i = 0; i < state.lines.length && i < maxLines(); i++) if (state.lines[i].edges.length) n++;
+    return n;
   }
   function edgeCount(id) {
     return state.lines.reduce((a, l) => a + l.edges.filter(e => e[0] === id || e[1] === id).length, 0);
@@ -416,6 +441,7 @@
     if (state.over) return;
     state.time += dt;
     tutUpdate();
+    if (curMode === 'story') checkChapter();
 
     spawnAcc += dt;
     const iv = BASE.spawn / (1 + state.upg.spawn * 0.35 + 0.10 * Math.max(0, state.stations.length - 2));
@@ -436,7 +462,7 @@
       else s.crowdT = Math.max(0, s.crowdT - dt * 1.5);
       if (s.crowdT > BASE.overLimit) over = true;
     });
-    if (over) gameOver();
+    if (over && curMode !== 'eternal') gameOver();
 
     coins.forEach(c => { c.t += dt; c.y -= 20 * dt; });
     coins = coins.filter(c => c.t < 1.1);
@@ -458,6 +484,44 @@
       '駅の数：' + state.stations.length;
     document.getElementById('over').classList.remove('hidden');
     save();
+  }
+
+  // ---- story mode chapters ----
+  function checkChapter() {
+    if (curMode !== 'story' || state.cleared) return;
+    let guard = 0;
+    while ((state.chapter || 0) < CHAPTERS.length && guard++ < CHAPTERS.length) {
+      const idx = state.chapter || 0;
+      if (!CHAPTERS[idx].check()) break;
+      state.chapter = idx + 1;
+      if (state.chapter >= CHAPTERS.length) { state.cleared = true; showClear(); }
+      else { showToast('第' + (idx + 1) + '章クリア：' + CHAPTERS[idx].name); beep(880, 0.12, 0.05); }
+      save();
+    }
+    renderChapterUI();
+  }
+  function showClear() {
+    beep(660, 0.15, 0.05);
+    const stats = document.getElementById('clearstats');
+    if (stats) {
+      stats.innerHTML =
+        '運行時間：' + fmtTime(state.time) + '<br>' +
+        '輸送人数：' + state.stats.delivered + ' 人<br>' +
+        '累計売上：¥' + Math.round(state.stats.earned) + '<br>' +
+        '駅の数：' + state.stations.length;
+    }
+    const el = document.getElementById('clear');
+    if (el) el.classList.remove('hidden');
+  }
+  function renderChapterUI() {
+    const box = document.getElementById('chapterBar');
+    if (!box) return;
+    if (curMode !== 'story' || state.cleared) { box.hidden = true; return; }
+    const idx = state.chapter || 0;
+    if (idx >= CHAPTERS.length) { box.hidden = true; return; }
+    const ch = CHAPTERS[idx];
+    box.hidden = false;
+    box.innerHTML = '<b>第' + (idx + 1) + '章：' + ch.name + '</b><span>' + ch.desc + '</span>';
   }
 
   // ---- rendering ----
@@ -689,6 +753,7 @@
     setTxt('hTrain', totalTrains());
     setTxt('hWait', totalWaiting());
     setTxt('hDeliv', state.stats.delivered);
+    renderChapterUI();
   }
   function setTxt(id, v) { const e = document.getElementById(id); if (e) e.textContent = v; }
 
@@ -794,6 +859,12 @@
     const s = TUT[tut.step];
     if (s.auto && s.auto()) tutNext();
   }
+  function maybeStartTut() {
+    let tutSeen = false;
+    try { tutSeen = !!localStorage.getItem('metro_tut_done'); } catch (e) {}
+    if (!tutSeen && totalEdges() === 0 && state.stats.delivered === 0) startTut();
+    else renderTut();
+  }
   function tutHighlight() {
     if (!tut.active) return null;
     if (tut.step <= 1) {
@@ -807,11 +878,13 @@
     return null;
   }
 
-  // ---- save / load ----
+  // ---- save / load (3 slots per mode) ----
   function save() {
+    if (!curMode || !curSlot) return;
     try {
       const cp = {
-        money: state.money, time: state.time, over: state.over,
+        mode: curMode, money: state.money, time: state.time, over: state.over,
+        chapter: state.chapter || 0, cleared: !!state.cleared,
         stations: state.stations, spots: state.spots,
         lines: state.lines.map(l => ({
           idx: l.idx, edges: l.edges,
@@ -819,25 +892,20 @@
         })),
         upg: state.upg, stats: state.stats, nextId: state.nextId,
       };
-      localStorage.setItem(SAVE_KEY, JSON.stringify(cp));
+      localStorage.setItem(saveKey(curMode, curSlot), JSON.stringify(cp));
     } catch (e) { /* ignore */ }
   }
-  function load() {
+  function readSlot(m, slot) {
     try {
-      const raw = localStorage.getItem(SAVE_KEY);
+      const raw = localStorage.getItem(saveKey(m, slot));
       if (!raw) return null;
       const s = JSON.parse(raw);
       if (!s || !Array.isArray(s.stations) || s.stations.length === 0) return null;
       return s;
     } catch (e) { return null; }
   }
-  function boot() {
-    if (/[?&]reset\b/.test(location.search)) {
-      try { localStorage.removeItem(SAVE_KEY); localStorage.removeItem('metro_tut_done'); } catch (e) {}
-      defaultState();
-      return;
-    }
-    const s = load();
+  function bootActive() {
+    const s = readSlot(curMode, curSlot);
     if (!s) { defaultState(); return; }
 
     state = s;
@@ -846,6 +914,8 @@
       if (typeof state.upg[k] !== 'number') state.upg[k] = 0;
     });
     state.stats = state.stats || { delivered: 0, earned: 0, spent: 0 };
+    state.chapter = typeof state.chapter === 'number' ? state.chapter : 0;
+    state.cleared = !!state.cleared;
     state.spots = state.spots || [];
     if (!Array.isArray(state.lines)) state.lines = [];
     while (state.lines.length < 5) state.lines.push(newLine(state.lines.length));
@@ -867,6 +937,96 @@
     }
     replenishSpots();
   }
+  function loadSlot(m, slot) {
+    curMode = m; curSlot = slot;
+    try { localStorage.setItem('metro_mode', m); localStorage.setItem('metro_slot', String(slot)); } catch (e) {}
+    bootActive();
+    editing = -1; editFrom = null; coins = []; spawnAcc = 0; toastT = 0;
+    const slotsEl = document.getElementById('slots');
+    if (slotsEl) slotsEl.classList.add('hidden');
+    const overEl = document.getElementById('over');
+    if (overEl) overEl.classList.add('hidden');
+    const clearEl = document.getElementById('clear');
+    if (clearEl) clearEl.classList.add('hidden');
+    buildSide();
+    updateSide();
+    renderLineCtrl();
+    renderChapterUI();
+    updateModeBadge();
+    maybeStartTut();
+    save();
+  }
+  function updateModeBadge() {
+    const b = document.getElementById('bSlots');
+    if (!b) return;
+    b.textContent = MODE_INFO[curMode].icon + ' スロット' + curSlot;
+  }
+
+  // ---- save slot manager ----
+  function renderSlots() {
+    const grid = document.getElementById('slotGrid');
+    const desc = document.getElementById('modeDesc');
+    if (!grid) return;
+    document.querySelectorAll('.mtab').forEach(b => b.classList.toggle('on', b.dataset.m === slotsTabMode));
+    if (desc) desc.textContent = MODE_INFO[slotsTabMode].desc;
+
+    let html = '';
+    SLOTS.forEach(slot => {
+      const s = readSlot(slotsTabMode, slot);
+      const active = slotsTabMode === curMode && slot === curSlot;
+      html += '<div class="slot-card' + (active ? ' active' : '') + '" data-slot="' + slot + '">';
+      html += '<b>スロット ' + slot + (active ? '（プレイ中）' : '') + '</b>';
+      if (!s) {
+        html += '<p class="slot-empty">空き — まだデータがありません</p>';
+        html += '<div class="slot-btns"><button class="slotPlay" data-slot="' + slot + '">新規に始める</button></div>';
+      } else {
+        const chap = slotsTabMode === 'story'
+          ? (s.cleared ? '・エンディング達成' : '・第' + Math.min((s.chapter || 0) + 1, CHAPTERS.length) + '章')
+          : '';
+        html += '<p>¥' + Math.floor(s.money) + '　駅' + s.stations.length + '　' + fmtTime(s.time || 0) + chap + '</p>';
+        html += '<div class="slot-btns">' +
+          '<button class="slotPlay" data-slot="' + slot + '">このセーブで遊ぶ</button>' +
+          '<button class="slotReset" data-slot="' + slot + '">削除</button></div>';
+        html += '<div class="slot-confirm" hidden data-slot="' + slot + '">' +
+          '<p>削除すると元に戻せません。「<code>' + RESET_PHRASE + '</code>」と入力すると削除できます。</p>' +
+          '<input type="text" class="slot-confirm-input" autocomplete="off" placeholder="' + RESET_PHRASE + '">' +
+          '<div class="slot-btns"><button class="slotDelete" disabled>完全に削除する</button>' +
+          '<button class="slotCancel">やめる</button></div></div>';
+      }
+      html += '</div>';
+    });
+    grid.innerHTML = html;
+
+    grid.querySelectorAll('.slotPlay').forEach(b => b.addEventListener('click', () => loadSlot(slotsTabMode, +b.dataset.slot)));
+    grid.querySelectorAll('.slotReset').forEach(b => b.addEventListener('click', () => {
+      grid.querySelectorAll('.slot-confirm').forEach(c => { c.hidden = true; });
+      const card = b.closest('.slot-card');
+      const confirmBox = card.querySelector('.slot-confirm');
+      confirmBox.hidden = false;
+      confirmBox.querySelector('.slot-confirm-input').value = '';
+      confirmBox.querySelector('.slotDelete').disabled = true;
+    }));
+    grid.querySelectorAll('.slot-confirm-input').forEach(inp => inp.addEventListener('input', () => {
+      const box = inp.closest('.slot-confirm');
+      box.querySelector('.slotDelete').disabled = inp.value !== RESET_PHRASE;
+    }));
+    grid.querySelectorAll('.slotCancel').forEach(b => b.addEventListener('click', () => { b.closest('.slot-confirm').hidden = true; }));
+    grid.querySelectorAll('.slotDelete').forEach(b => b.addEventListener('click', () => {
+      if (b.disabled) return;
+      const slot = +b.closest('.slot-card').dataset.slot;
+      try { localStorage.removeItem(saveKey(slotsTabMode, slot)); } catch (e) {}
+      if (slotsTabMode === curMode && slot === curSlot) {
+        defaultState();
+        editing = -1; editFrom = null; coins = []; spawnAcc = 0; toastT = 0;
+        document.getElementById('over').classList.add('hidden');
+        document.getElementById('clear').classList.add('hidden');
+        buildSide(); updateSide(); renderLineCtrl(); renderChapterUI();
+        save();
+      }
+      showToast('削除しました');
+      renderSlots();
+    }));
+  }
 
   // ---- input ----
   function toLocal(e) {
@@ -885,17 +1045,44 @@
     tutStepEl = document.getElementById('tutStep');
     tutNextBtn = document.getElementById('tutNext');
 
-    boot();
+    // resolve which mode/slot to play, migrating a legacy single-save file if present
+    let firstVisit = false;
+    try {
+      const savedMode = localStorage.getItem('metro_mode');
+      const savedSlot = parseInt(localStorage.getItem('metro_slot'), 10);
+      if (MODES.indexOf(savedMode) !== -1 && SLOTS.indexOf(savedSlot) !== -1) {
+        curMode = savedMode; curSlot = savedSlot;
+      } else {
+        firstVisit = true;
+        const legacy = localStorage.getItem('metro_tycoon_v1');
+        if (legacy && !localStorage.getItem(saveKey('story', 1))) {
+          localStorage.setItem(saveKey('story', 1), legacy);
+        }
+        curMode = 'story'; curSlot = 1;
+        localStorage.setItem('metro_mode', curMode);
+        localStorage.setItem('metro_slot', String(curSlot));
+      }
+    } catch (e) {}
+
+    bootActive();
     buildSide();
     updateSide();
     renderLineCtrl();
+    renderChapterUI();
+    updateModeBadge();
 
     tutNextBtn.addEventListener('click', tutNext);
     document.getElementById('tutSkip').addEventListener('click', finishTut);
-    let tutSeen = false;
-    try { tutSeen = !!localStorage.getItem('metro_tut_done'); } catch (e) {}
-    if (!tutSeen && totalEdges() === 0 && state.stats.delivered === 0) startTut();
-    else renderTut();
+
+    // save slot / mode manager
+    const slotsEl = document.getElementById('slots');
+    document.getElementById('bSlots').addEventListener('click', () => { slotsTabMode = curMode; renderSlots(); slotsEl.classList.remove('hidden'); });
+    document.getElementById('bCloseSlots').addEventListener('click', () => { slotsEl.classList.add('hidden'); maybeStartTut(); });
+    document.querySelectorAll('.mtab').forEach(b => b.addEventListener('click', () => { slotsTabMode = b.dataset.m; renderSlots(); }));
+    if (firstVisit) { slotsTabMode = curMode; renderSlots(); slotsEl.classList.remove('hidden'); }
+    else maybeStartTut();
+
+    document.getElementById('bClearContinue').addEventListener('click', () => document.getElementById('clear').classList.add('hidden'));
 
     cv.addEventListener('pointerdown', e => {
       e.preventDefault();
@@ -921,7 +1108,7 @@
       defaultState();
       spawnAcc = 0; coins = []; editing = -1; editFrom = null;
       document.getElementById('over').classList.add('hidden');
-      updateSide(); renderLineCtrl(); save();
+      updateSide(); renderLineCtrl(); renderChapterUI(); save();
     });
 
     document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });

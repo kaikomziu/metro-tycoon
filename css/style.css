@@ -13,6 +13,11 @@ body{-webkit-user-select:none;user-select:none;overflow-x:hidden}
 #hud button{background:#1b2233;border:1px solid #2c364d;color:#e8ecf3;border-radius:9px;padding:6px 9px;font-size:14px;cursor:pointer}
 #hud button:hover{background:#243049}
 
+#chapterBar{background:#141a27;border:1px solid #232b3d;border-radius:10px;padding:7px 13px;font-size:12px;color:#c7d0e0;margin:0 0 10px;max-width:960px}
+#chapterBar[hidden]{display:none}
+#chapterBar b{color:#7fd0ff;margin-right:8px}
+#chapterBar span{color:#93a0b6}
+
 #main{display:flex;gap:16px;align-items:flex-start}
 #stage{flex:1;min-width:0;position:relative}
 
@@ -56,11 +61,38 @@ body{-webkit-user-select:none;user-select:none;overflow-x:hidden}
 .ov .card p{color:#aab6cc;margin-bottom:12px;font-size:13px}
 .ov .card ul{margin:0 0 14px 18px;font-size:12.5px;line-height:1.7;color:#c4cddd}
 .ov .card button{background:#1d6feb;border:0;color:#fff;border-radius:9px;padding:10px 18px;font-size:14px;font-weight:700;cursor:pointer}
-#overstats{font-size:13px;line-height:1.8;color:#dbe3f0;margin-bottom:14px;font-variant-numeric:tabular-nums}
+.ov .card.wide{max-width:680px}
+#overstats,#clearstats{font-size:13px;line-height:1.8;color:#dbe3f0;margin-bottom:14px;font-variant-numeric:tabular-nums}
+#clear .card h2{color:#7fe0a8}
 #changelog{font-size:11px;color:#8391a7;line-height:1.6;margin:10px 0 16px;max-height:160px;overflow:auto}
 #changelog h4{color:#9fb0c8;font-size:12px;margin:6px 0 3px}
+
+.mode-tabs{display:flex;gap:8px;margin-bottom:10px}
+.mtab{flex:1;background:#12182a;border:1px solid #2b3651;color:#aeb8c8;border-radius:9px;padding:9px 10px;font-size:12.5px;font-weight:700;cursor:pointer}
+.mtab.on{border-color:#1d6feb;background:#17233c;color:#fff}
+.mode-desc{font-size:12px;color:#93a0b6;line-height:1.6;margin-bottom:12px}
+.slot-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px}
+.slot-card{background:#0f1420;border:1px solid #222c3d;border-radius:11px;padding:11px;display:flex;flex-direction:column;gap:7px}
+.slot-card.active{border-color:#3ad07a}
+.slot-card b{font-size:12.5px}
+.slot-card p{font-size:11px;color:#c4cddd;margin:0;line-height:1.5}
+.slot-card p.slot-empty{color:#78839a}
+.slot-btns{display:flex;gap:6px;flex-wrap:wrap}
+.slot-card .slot-btns button{flex:1;min-width:0;background:#1d6feb;border:0;color:#fff;border-radius:7px;padding:7px 6px;font-size:11px;font-weight:700;cursor:pointer}
+.slot-card .slotReset{background:#3a2230;color:#ff9db0}
+.slot-confirm{background:#1a0f14;border:1px solid #4a2530;border-radius:9px;padding:9px;margin-top:2px}
+.slot-confirm p{font-size:10.5px;color:#e3b7c2;margin-bottom:7px}
+.slot-confirm code{background:#2a1620;padding:1px 5px;border-radius:4px;color:#ff9db0}
+.slot-confirm-input{width:100%;background:#0d1017;border:1px solid #4a2530;color:#e8ecf3;border-radius:7px;padding:7px 8px;font-size:11px;margin-bottom:7px}
+.slot-confirm .slotDelete{background:#c23a52}
+.slot-confirm .slotDelete:disabled{background:#3a2230;color:#7a5560;cursor:not-allowed}
+.slot-confirm .slotCancel{background:#26303f;color:#aeb8c8}
 
 @media(max-width:920px){
   #main{flex-direction:column}
   #side{width:100%}
+}
+@media(max-width:640px){
+  .slot-grid{grid-template-columns:1fr}
+  .mode-tabs{flex-direction:column}
 }
