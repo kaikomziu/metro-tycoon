@@ -108,6 +108,13 @@ body{-webkit-user-select:none;user-select:none;overflow-x:hidden}
   background:#0a0d16;border:1px solid var(--border);border-radius:18px;
   box-shadow:var(--shadow-lg);touch-action:none;
 }
+#camCtrl{position:absolute;right:22px;bottom:16px;display:flex;flex-direction:column;gap:6px;z-index:15}
+#camCtrl button{
+  width:34px;height:34px;border-radius:10px;background:rgba(15,19,30,.75);backdrop-filter:blur(10px);
+  border:1px solid var(--border);color:var(--text);font-size:16px;font-weight:700;cursor:pointer;font-family:inherit;
+  transition:background .15s ease,transform .15s ease;
+}
+#camCtrl button:hover{background:rgba(255,255,255,.12);transform:translateY(-1px)}
 
 #linectrl{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:12px auto 0;max-width:960px}
 #linectrl .lslot{
@@ -201,6 +208,9 @@ body{-webkit-user-select:none;user-select:none;overflow-x:hidden}
   transition:transform .15s ease,filter .15s ease;
 }
 .ov .card button:hover{transform:translateY(-1px);filter:brightness(1.08)}
+.clear-btns{display:flex;gap:8px;flex-wrap:wrap}
+.clear-btns button{flex:1;min-width:160px}
+.ov .card button.secondary{background:rgba(255,255,255,.06);color:var(--text-dim);box-shadow:none}
 #help .card button+button{margin-left:8px}
 #over .card{border-color:rgba(255,93,117,.25)}
 #over .card h2{color:var(--bad)}

@@ -2,7 +2,8 @@
   'use strict';
 
   // ---- constants ----
-  const W = 960, H = 620;
+  const W = 960, H = 620;               // canvas / viewport resolution (fixed)
+  const WORLD_W = 1500, WORLD_H = 950;  // game world is bigger than the viewport; pan + zoom to explore it
   const SHAPES = ['circle', 'triangle', 'square', 'diamond', 'pentagon'];
   const COLORS = ['#ff5d75', '#5b8cff', '#3ddc97', '#ffc94d', '#b98bff'];
   const NAMES  = ['1号線', '2号線', '3号線', '4号線', '5号線'];
@@ -102,6 +103,17 @@
   let skin = 'default';           // cosmetic theme, account-wide (localStorage)
   let achUnlocked = {};           // achievement id -> unlocked timestamp, account-wide
   let eventAcc = 0;
+  let camera = { x: WORLD_W / 2, y: WORLD_H / 2, zoom: 0.72 };   // pan/zoom over the world, not persisted
+  let _rng = Math.random;         // swapped for a seeded generator while building a daily-challenge map
+  function rand() { return _rng(); }
+  function mulberry32(seed) {
+    return function () {
+      seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
 
   const dist2 = (a, b) => { const dx = a.x - b.x, dy = a.y - b.y; return dx * dx + dy * dy; };
   const dist  = (a, b) => Math.sqrt(dist2(a, b));
@@ -132,7 +144,7 @@
   function defaultState() {
     state = {
       money: 100, time: 0, over: false,
-      chapter: 0, cleared: false, event: null, _nearMiss: false,
+      chapter: 0, cleared: false, ngPlus: 0, event: null, _nearMiss: false,
       stations: [], spots: [], lines: [],
       upg: {
         fare: 0, capacity: 0, speed: 0, trains: 0, spawn: 0, lines: 0,
@@ -142,18 +154,24 @@
       nextId: 1,
     };
     for (let i = 0; i < 5; i++) state.lines.push(newLine(i));
-    addStation(W / 2 - 120, H / 2 - 30, 'circle');
-    addStation(W / 2 + 130, H / 2 + 40, 'triangle');
+    const cx = WORLD_W / 2, cy = WORLD_H / 2;
+    addStation(cx - 120, cy - 30, 'circle');
+    addStation(cx + 130, cy + 40, 'triangle');
     const defs = [
-      [W / 2 + 20, H / 2 - 150, 'square'],
-      [W / 2 - 240, H / 2 + 90, 'diamond'],
-      [W / 2 + 250, H / 2 - 60, 'pentagon'],
-      [W / 2 - 30, H / 2 + 175, 'circle'],
-      [W / 2 + 180, H / 2 + 165, 'triangle'],
-      [W / 2 - 285, H / 2 - 120, 'square'],
+      [cx + 20, cy - 150],
+      [cx - 240, cy + 90],
+      [cx + 250, cy - 60],
+      [cx - 30, cy + 175],
+      [cx + 180, cy + 165],
+      [cx - 285, cy - 120],
     ];
+    // jittered so every new game (and each day's daily challenge, seeded) looks a little different
     defs.forEach((d, i) => state.spots.push({
-      id: state.nextId++, x: d[0], y: d[1], shape: d[2], cost: Math.round(55 * Math.pow(1.34, i)),
+      id: state.nextId++,
+      x: d[0] + (rand() - 0.5) * 90,
+      y: d[1] + (rand() - 0.5) * 90,
+      shape: SHAPES[(rand() * SHAPES.length) | 0],
+      cost: Math.round(55 * Math.pow(1.34, i)),
     }));
     return state;
   }
@@ -355,7 +373,7 @@
   // ---- buying ----
   function randomPos() {
     for (let i = 0; i < 300; i++) {
-      const x = 48 + Math.random() * (W - 96), y = 48 + Math.random() * (H - 96);
+      const x = 48 + rand() * (WORLD_W - 96), y = 48 + rand() * (WORLD_H - 96);
       let ok = true;
       for (const s of state.stations) if (dist2(s, { x, y }) < 94 * 94) { ok = false; break; }
       if (ok) for (const s of state.spots) if (dist2(s, { x, y }) < 86 * 86) { ok = false; break; }
@@ -370,7 +388,7 @@
       if (!p) break;
       state.spots.push({
         id: state.nextId++, x: p.x, y: p.y,
-        shape: SHAPES[(Math.random() * SHAPES.length) | 0],
+        shape: SHAPES[(rand() * SHAPES.length) | 0],
         cost: Math.round(spotCost() * (1 + 0.12 * state.spots.length)),
       });
     }
@@ -480,9 +498,11 @@
   // ---- simulation ----
   function update(dt) {
     if (state.over) return;
+    if (curMode === 'daily' && dailyDone) return;
     state.time += dt;
     tutUpdate();
     if (curMode === 'story') checkChapter();
+    if (curMode === 'daily' && state.time >= DAILY_DURATION) { endDaily(); return; }
 
     if (state.upg.interest) {
       const gain = state.money * state.upg.interest * 0.00015 * dt;
@@ -491,7 +511,7 @@
     }
 
     if (state.event && state.time >= state.event.until) state.event = null;
-    maybeSpawnEvent(dt);
+    if (curMode !== 'daily') maybeSpawnEvent(dt);
 
     spawnAcc += dt;
     let iv = BASE.spawn / (1 + state.upg.spawn * 0.35 + 0.10 * Math.max(0, state.stations.length - 2));
@@ -516,7 +536,7 @@
       if (s.crowdT > oGrace) over = true;
     });
     if (nearMiss && !over) state._nearMiss = true;
-    if (over && curMode !== 'eternal') gameOver();
+    if (over && curMode !== 'eternal' && curMode !== 'daily') gameOver();
 
     checkAchievements();
 
@@ -602,6 +622,7 @@
     const stats = document.getElementById('clearstats');
     if (stats) {
       stats.innerHTML =
+        (state.ngPlus ? '周回：' + state.ngPlus + '周目クリア！<br>' : '') +
         '運行時間：' + fmtTime(state.time) + '<br>' +
         '輸送人数：' + state.stats.delivered + ' 人<br>' +
         '累計売上：¥' + Math.round(state.stats.earned) + '<br>' +
@@ -615,6 +636,19 @@
     if (btn) btn.disabled = false;
     const el = document.getElementById('clear');
     if (el) el.classList.remove('hidden');
+  }
+  function startNewGamePlus() {
+    const prevNg = state.ngPlus || 0;
+    defaultState();
+    state.ngPlus = prevNg + 1;
+    const bonus = Math.min(3, state.ngPlus);
+    UP.forEach(u => { state.upg[u.key] = Math.min(u.max, bonus); });
+    state.lines.forEach(rebuildLine);
+    spawnAcc = 0; coins = []; editing = -1; editFrom = null; dispMoney = null;
+    document.getElementById('clear').classList.add('hidden');
+    buildSide(); updateSide(); renderLineCtrl(); renderChapterUI(); updateModeBadge();
+    save();
+    showToast('🔁 ニューゲーム+ ' + state.ngPlus + '周目、開始！ アップグレード初期Lv+' + bonus);
   }
   function renderChapterUI() {
     const box = document.getElementById('chapterBar');
@@ -688,6 +722,85 @@
     } catch (e) {
       list.innerHTML = '<p class="mode-desc">まだランキング機能の準備ができていません。しばらくしてからもう一度お試しください。</p>';
     }
+  }
+
+  // ---- daily challenge ----
+  const DAILY_DURATION = 300; // 5 minutes
+  let preDaily = null, dailyDone = false;
+  function todaySeed() {
+    const d = new Date();
+    return d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
+  }
+  function todayStr() {
+    const d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+  function renderDailyBar() {
+    const box = document.getElementById('chapterBar');
+    if (!box || curMode !== 'daily') return;
+    box.hidden = false;
+    const remain = Math.max(0, Math.ceil(DAILY_DURATION - state.time));
+    box.innerHTML = '<b>📅 デイリーチャレンジ</b><span>残り ' + fmtTime(remain) + '　現在の売上 ¥' + Math.round(state.stats.earned) + '</span>';
+  }
+  async function openDaily() {
+    const el = document.getElementById('daily');
+    document.getElementById('dailyDate').textContent = '今日（' + todayStr() + '）の共通マップ';
+    el.classList.remove('hidden');
+    const list = document.getElementById('dailyTopList');
+    list.innerHTML = '<p class="mode-desc">読み込み中…</p>';
+    try {
+      const rows = await window.MetroRanking.dailyTop(todayStr(), 20);
+      if (!rows.length) { list.innerHTML = '<p class="mode-desc">今日はまだ誰も挑戦していません。一番乗りを目指そう！</p>'; return; }
+      let html = '<div class="rank-row rank-head"><span>#</span><span>社長</span><span>売上</span><span></span><span></span></div>';
+      rows.forEach((r, i) => {
+        html += '<div class="rank-row"><span>' + (i + 1) + '</span><span>' + escapeHtml(r.name) + '</span><span>¥' + r.score + '</span><span></span><span></span></div>';
+      });
+      list.innerHTML = html;
+    } catch (e) {
+      list.innerHTML = '<p class="mode-desc">まだランキング機能の準備ができていません。挑戦はできます。</p>';
+    }
+  }
+  function startDaily() {
+    if (!preDaily) preDaily = { state, curMode, curSlot };
+    const seed = todaySeed();
+    _rng = mulberry32(seed);
+    defaultState();
+    _rng = Math.random;
+    curMode = 'daily'; curSlot = 0;
+    dailyDone = false;
+    editing = -1; editFrom = null; coins = []; spawnAcc = 0; toastT = 0; dispMoney = null;
+    camera = { x: WORLD_W / 2, y: WORLD_H / 2, zoom: 0.72 };
+    document.getElementById('daily').classList.add('hidden');
+    document.getElementById('dailyResult').classList.add('hidden');
+    buildSide(); updateSide(); renderLineCtrl(); updateModeBadge();
+    renderDailyBar();
+    showToast('📅 デイリーチャレンジ開始！5分間でどれだけ稼げるか');
+  }
+  function endDaily() {
+    if (dailyDone) return;
+    dailyDone = true;
+    const score = Math.round(state.stats.earned);
+    beep(880, 0.18, 0.06);
+    document.getElementById('dailyResultTitle').textContent = '📅 タイムアップ！';
+    document.getElementById('dailyResultStats').innerHTML =
+      '最終売上：¥' + score + '<br>駅の数：' + state.stations.length + '<br>輸送人数：' + state.stats.delivered + ' 人';
+    const nameInput = document.getElementById('dailyName');
+    if (nameInput && window.MetroRanking) nameInput.value = window.MetroRanking.getName();
+    document.getElementById('dailySubmitMsg').textContent = '';
+    document.getElementById('bDailySubmit').disabled = false;
+    document.getElementById('dailyResult').classList.remove('hidden');
+  }
+  function exitDaily() {
+    if (preDaily) {
+      state = preDaily.state; curMode = preDaily.curMode; curSlot = preDaily.curSlot;
+      preDaily = null;
+    }
+    dailyDone = false;
+    editing = -1; editFrom = null; coins = []; spawnAcc = 0; toastT = 0; dispMoney = null;
+    camera = { x: WORLD_W / 2, y: WORLD_H / 2, zoom: 0.72 };
+    document.getElementById('dailyResult').classList.add('hidden');
+    document.getElementById('daily').classList.add('hidden');
+    buildSide(); updateSide(); renderLineCtrl(); renderChapterUI(); updateModeBadge();
   }
 
   // ---- rendering ----
@@ -777,6 +890,12 @@
     ctx.fillRect(0, 0, W, H);
     ctx.fillStyle = 'rgba(255,255,255,0.035)';
     for (let x = 36; x < W; x += 36) for (let y = 36; y < H; y += 36) ctx.fillRect(x, y, 1.4, 1.4);
+
+    // everything below is drawn in world space; pan/zoom via `camera`
+    ctx.save();
+    ctx.translate(W / 2, H / 2);
+    ctx.scale(camera.zoom, camera.zoom);
+    ctx.translate(-camera.x, -camera.y);
 
     // tracks — dark casing, then colour; parallel offset where lines share a corridor
     rebuildShare();
@@ -937,6 +1056,8 @@
       ctx.globalAlpha = 1;
     });
 
+    ctx.restore(); // end world space — toast below is fixed to the screen
+
     if (toastT > 0) {
       ctx.globalAlpha = toastT > 0.4 ? 1 : toastT / 0.4;
       ctx.font = "600 13.5px 'Space Grotesk',system-ui";
@@ -978,6 +1099,7 @@
     setTxt('hWait', totalWaiting());
     setTxt('hDeliv', state.stats.delivered);
     renderChapterUI();
+    renderDailyBar();
     renderEventBar();
   }
   function setTxt(id, v) { const e = document.getElementById(id); if (e) e.textContent = v; }
@@ -1062,7 +1184,37 @@
       o.stop(actx.currentTime + (dur || 0.12));
     } catch (e) { /* ignore */ }
   }
-  function resumeAudio() { try { if (actx && actx.state === 'suspended') actx.resume(); } catch (e) {} }
+  function resumeAudio() {
+    try { if (actx && actx.state === 'suspended') actx.resume(); } catch (e) {}
+    // browsers block autoplay until a user gesture; resume any previously chosen BGM here
+    if (bgmEl && bgmIndex >= 0 && bgmEl.paused) { bgmEl.play().catch(() => {}); }
+  }
+
+  // ---- BGM ----
+  const BGM_TRACKS = [
+    { name: '朝の青空', src: 'audio/morning-sky.mp3' },
+    { name: 'Rain on Rhodes', src: 'audio/rhodes-rain.mp3' },
+  ];
+  let bgmEl = null, bgmIndex = -1;   // -1 = off
+  function updateBgmLabel() {
+    const b = document.getElementById('bBgm');
+    if (!b) return;
+    b.textContent = bgmIndex < 0 ? '🎵 BGM OFF' : '🎵 ' + BGM_TRACKS[bgmIndex].name;
+  }
+  function setBgm(idx) {
+    bgmIndex = idx;
+    try { localStorage.setItem('metro_bgm', String(idx)); } catch (e) {}
+    if (!bgmEl) return;
+    if (idx < 0) { bgmEl.pause(); }
+    else {
+      const src = BGM_TRACKS[idx].src;
+      if (!bgmEl.src || bgmEl.src.indexOf(src) === -1) bgmEl.src = src;
+      bgmEl.muted = muted;
+      bgmEl.play().catch(() => {});
+    }
+    updateBgmLabel();
+  }
+  function cycleBgm() { setBgm(bgmIndex >= BGM_TRACKS.length - 1 ? -1 : bgmIndex + 1); }
 
   function showToast(m) { toastMsg = m; toastT = 2.4; }
 
@@ -1120,7 +1272,7 @@
     try {
       const cp = {
         mode: curMode, money: state.money, time: state.time, over: state.over,
-        chapter: state.chapter || 0, cleared: !!state.cleared,
+        chapter: state.chapter || 0, cleared: !!state.cleared, ngPlus: state.ngPlus || 0,
         event: state.event, _nearMiss: !!state._nearMiss,
         stations: state.stations, spots: state.spots,
         lines: state.lines.map(l => ({
@@ -1153,6 +1305,7 @@
     state.stats = state.stats || { delivered: 0, earned: 0, spent: 0 };
     state.chapter = typeof state.chapter === 'number' ? state.chapter : 0;
     state.cleared = !!state.cleared;
+    state.ngPlus = typeof state.ngPlus === 'number' ? state.ngPlus : 0;
     state._nearMiss = !!state._nearMiss;
     state.event = (state.event && state.event.until > state.time) ? state.event : null;
     state.spots = state.spots || [];
@@ -1198,6 +1351,7 @@
   function updateModeBadge() {
     const b = document.getElementById('bSlots');
     if (!b) return;
+    if (curMode === 'daily') { b.textContent = '📅 デイリー中'; return; }
     b.textContent = MODE_INFO[curMode].icon + ' スロット' + curSlot;
   }
 
@@ -1220,7 +1374,7 @@
         html += '<div class="slot-btns"><button class="slotPlay" data-slot="' + slot + '">新規に始める</button></div>';
       } else {
         const chap = slotsTabMode === 'story'
-          ? (s.cleared ? '・エンディング達成' : '・第' + Math.min((s.chapter || 0) + 1, CHAPTERS.length) + '章')
+          ? (s.cleared ? '・エンディング達成' : '・第' + Math.min((s.chapter || 0) + 1, CHAPTERS.length) + '章') + (s.ngPlus ? '（' + s.ngPlus + '周目）' : '')
           : '';
         html += '<p>¥' + Math.floor(s.money) + '　駅' + s.stations.length + '　' + fmtTime(s.time || 0) + chap + '</p>';
         html += '<div class="slot-btns">' +
@@ -1267,10 +1421,27 @@
     }));
   }
 
-  // ---- input ----
-  function toLocal(e) {
+  // ---- input / camera ----
+  function toRawLocal(e) {
     const r = cv.getBoundingClientRect();
     return { x: (e.clientX - r.left) * (W / r.width), y: (e.clientY - r.top) * (H / r.height) };
+  }
+  function clampCamera() {
+    const vw = W / camera.zoom, vh = H / camera.zoom;
+    const halfW = vw / 2, halfH = vh / 2;
+    camera.x = (halfW * 2 >= WORLD_W) ? WORLD_W / 2 : Math.min(WORLD_W - halfW, Math.max(halfW, camera.x));
+    camera.y = (halfH * 2 >= WORLD_H) ? WORLD_H / 2 : Math.min(WORLD_H - halfH, Math.max(halfH, camera.y));
+  }
+  function screenToWorld(p) {
+    return { x: camera.x + (p.x - W / 2) / camera.zoom, y: camera.y + (p.y - H / 2) / camera.zoom };
+  }
+  function toLocal(e) { return screenToWorld(toRawLocal(e)); }
+  const ZOOM_LEVELS = [0.55, 0.72, 1, 1.35];
+  function zoomStep(dir) {
+    const i = ZOOM_LEVELS.reduce((best, z, idx) => Math.abs(z - camera.zoom) < Math.abs(ZOOM_LEVELS[best] - camera.zoom) ? idx : best, 0);
+    const next = Math.min(ZOOM_LEVELS.length - 1, Math.max(0, i + dir));
+    camera.zoom = ZOOM_LEVELS[next];
+    clampCamera();
   }
 
   function init() {
@@ -1333,6 +1504,7 @@
     else maybeStartTut();
 
     document.getElementById('bClearContinue').addEventListener('click', () => document.getElementById('clear').classList.add('hidden'));
+    document.getElementById('bClearNgPlus').addEventListener('click', startNewGamePlus);
     document.getElementById('bClearSubmit').addEventListener('click', async () => {
       const btn = document.getElementById('bClearSubmit');
       const msg = document.getElementById('clearSubmitMsg');
@@ -1373,22 +1545,97 @@
     document.getElementById('bRank').addEventListener('click', () => { rankEl.classList.remove('hidden'); renderRank(); });
     document.getElementById('bCloseRank').addEventListener('click', () => rankEl.classList.add('hidden'));
 
+    document.getElementById('zoomIn').addEventListener('click', () => zoomStep(1));
+    document.getElementById('zoomOut').addEventListener('click', () => zoomStep(-1));
+    clampCamera();
+
+    document.getElementById('bDaily').addEventListener('click', openDaily);
+    document.getElementById('bCloseDaily').addEventListener('click', () => document.getElementById('daily').classList.add('hidden'));
+    document.getElementById('bDailyStart').addEventListener('click', startDaily);
+    document.getElementById('bDailyRetry').addEventListener('click', startDaily);
+    document.getElementById('bDailyExit').addEventListener('click', exitDaily);
+    document.getElementById('bDailySubmit').addEventListener('click', async () => {
+      const btn = document.getElementById('bDailySubmit');
+      const msg = document.getElementById('dailySubmitMsg');
+      const nameInput = document.getElementById('dailyName');
+      const name = (nameInput.value || '').trim().slice(0, 20) || 'なぞの社長';
+      if (window.MetroRanking) window.MetroRanking.setName(name);
+      btn.disabled = true;
+      msg.textContent = '送信中…';
+      try {
+        await window.MetroRanking.dailySubmit({ day: todayStr(), name, score: Math.round(state.stats.earned) });
+        msg.textContent = '登録しました！🏆';
+        beep(1200, 0.12, 0.05);
+      } catch (e) {
+        msg.textContent = 'ランキング機能は準備中です。';
+        btn.disabled = false;
+      }
+    });
+
+    // pointerdown starts a potential pan; if the pointer moves past a small
+    // threshold before release it's treated as a drag (camera pan), otherwise
+    // it's a tap (build/select). This keeps the existing tap-to-build flow
+    // working while adding drag-to-scroll over the larger world.
+    let dragRaw = null, dragged = false;
     cv.addEventListener('pointerdown', e => {
       e.preventDefault();
       resumeAudio();
-      const p = toLocal(e);
-      mouse = p;
-      handleTap(p.x, p.y);
+      const raw = toRawLocal(e);
+      dragRaw = raw; dragged = false;
+      mouse = screenToWorld(raw);
     });
-    cv.addEventListener('pointermove', e => { mouse = toLocal(e); });
-    cv.addEventListener('pointerleave', () => { mouse = null; });
+    cv.addEventListener('pointermove', e => {
+      const raw = toRawLocal(e);
+      if (dragRaw) {
+        const dx = raw.x - dragRaw.x, dy = raw.y - dragRaw.y;
+        if (!dragged && Math.hypot(dx, dy) > 6) dragged = true;
+        if (dragged) {
+          camera.x -= dx / camera.zoom;
+          camera.y -= dy / camera.zoom;
+          clampCamera();
+          dragRaw = raw;
+        }
+      }
+      mouse = screenToWorld(raw);
+    });
+    cv.addEventListener('pointerup', e => {
+      if (dragRaw && !dragged) {
+        const w = screenToWorld(dragRaw);
+        handleTap(w.x, w.y);
+      }
+      dragRaw = null; dragged = false;
+    });
+    cv.addEventListener('pointerleave', () => { mouse = null; dragRaw = null; dragged = false; });
+    cv.addEventListener('wheel', e => {
+      e.preventDefault();
+      const raw = toRawLocal(e);
+      const before = screenToWorld(raw);
+      camera.zoom = Math.min(1.6, Math.max(0.45, camera.zoom * (e.deltaY < 0 ? 1.1 : 0.9)));
+      const after = screenToWorld(raw);
+      camera.x += before.x - after.x;
+      camera.y += before.y - after.y;
+      clampCamera();
+    }, { passive: false });
 
     document.addEventListener('keydown', e => { if (e.key === 'Escape' && editing >= 0) stopEdit(); });
 
     document.getElementById('bMute').addEventListener('click', e => {
       muted = !muted;
       e.target.textContent = muted ? '🔇' : '🔊';
+      if (bgmEl) bgmEl.muted = muted;
     });
+
+    bgmEl = document.getElementById('bgm');
+    if (bgmEl) {
+      bgmEl.volume = 0.35;
+      try {
+        const sv = parseInt(localStorage.getItem('metro_bgm'), 10);
+        if (sv >= 0 && sv < BGM_TRACKS.length) bgmIndex = sv;
+      } catch (e) {}
+      updateBgmLabel();
+      document.getElementById('bBgm').addEventListener('click', cycleBgm);
+      if (bgmIndex >= 0) { bgmEl.src = BGM_TRACKS[bgmIndex].src; bgmEl.muted = muted; }
+    }
     const help = document.getElementById('help');
     document.getElementById('bHelp').addEventListener('click', () => { renderChangelog(); help.classList.remove('hidden'); });
     document.getElementById('bCloseHelp').addEventListener('click', () => help.classList.add('hidden'));

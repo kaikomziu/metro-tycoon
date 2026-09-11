@@ -12,10 +12,17 @@
 <meta property="og:description" content="駅を買って路線をつなぎ、走る電車で稼ぐ Mini Metro風の鉄道経営ゲーム。">
 <meta property="og:url" content="https://kaikomziu.github.io/metro-tycoon/">
 <meta name="theme-color" content="#070911">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="METRO TYCOON">
+<meta name="mobile-web-app-capable" content="yes">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap">
-<link rel="stylesheet" href="css/style.css?v=1.7.0">
+<link rel="stylesheet" href="css/style.css?v=1.8.0">
 </head>
 <body>
 <div id="app">
@@ -35,10 +42,13 @@
     </div>
     <button id="bAch" title="実績・見た目">🏅</button>
     <button id="bRank" title="世界ランキング">🏆</button>
+    <button id="bDaily" title="デイリーチャレンジ">📅</button>
     <button id="bSlots" title="モード・セーブ管理">📖 スロット1</button>
+    <button id="bBgm" title="BGM">🎵 BGM OFF</button>
     <button id="bMute" title="サウンド">🔊</button>
     <button id="bHelp" title="遊び方">❓</button>
   </header>
+  <audio id="bgm" loop preload="none"></audio>
 
   <div id="chapterBar" hidden></div>
   <div id="eventBar" hidden></div>
@@ -46,6 +56,10 @@
   <div id="main">
     <div id="stage">
       <canvas id="cv" width="960" height="620"></canvas>
+      <div id="camCtrl">
+        <button id="zoomIn" title="ズームイン">＋</button>
+        <button id="zoomOut" title="ズームアウト">－</button>
+      </div>
       <div id="tut" hidden>
         <div class="tut-body">
           <span id="tutStep" class="tut-step"></span>
@@ -81,7 +95,10 @@
       <button id="bClearSubmit">🏆 世界ランキングに登録</button>
     </div>
     <p id="clearSubmitMsg" class="mode-desc"></p>
-    <button id="bClearContinue">このまま経営を続ける</button>
+    <div class="clear-btns">
+      <button id="bClearContinue">このまま経営を続ける</button>
+      <button id="bClearNgPlus" class="secondary">🔁 ニューゲーム+で再挑戦</button>
+    </div>
   </div>
 </div>
 
@@ -99,6 +116,10 @@
       <li><b>実績・見た目：</b>🏅ボタンで実績一覧と見た目テーマを確認・切り替えできます。実績を解除するほど新しいテーマが使えるように。</li>
       <li><b>世界ランキング：</b>🏆ボタンでストーリーモードのクリアタイムランキングを見られます。クリア画面から自分の記録を登録できます。</li>
       <li><b>ランダムイベント：</b>ときどき「ラッシュアワー」「VIP乗客」「車両トラブル」がしばらく発生し、乗客数・運賃・速度が変化します。</li>
+      <li><b>マップ操作：</b>マップは画面より広いので、ドラッグでスクロール、ホイールや右下の＋／－でズームできます。</li>
+      <li><b>デイリーチャレンジ：</b>📅ボタンから、今日だけの共通マップで5分間の売上を競える早業モードに挑戦できます（ゲームオーバーなし、専用ランキングつき）。</li>
+      <li><b>BGM：</b>🎵ボタンで2曲を切替・オフにできます。</li>
+      <li><b>ニューゲーム+：</b>ストーリークリア後、「ニューゲーム+で再挑戦」でアップグレード初期Lvボーナスを引き継いだ次の周回を始められます。</li>
     </ul>
     <div id="changelog"></div>
     <button id="bTut">チュートリアルをもう一度</button>
@@ -138,9 +159,43 @@
   </div>
 </div>
 
+<div id="daily" class="ov hidden">
+  <div class="card">
+    <h2>📅 デイリーチャレンジ</h2>
+    <p id="dailyDate" class="mode-desc"></p>
+    <p class="mode-desc">今日だけの共通マップで5分間の売上を競う早業チャレンジ。混雑してもゲームオーバーにはなりません。挑戦は何度でもやり直せます。</p>
+    <div id="dailyTopList" class="rank-list"></div>
+    <div class="clear-btns">
+      <button id="bDailyStart">挑戦する</button>
+      <button id="bCloseDaily" class="secondary">とじる</button>
+    </div>
+  </div>
+</div>
+
+<div id="dailyResult" class="ov hidden">
+  <div class="card">
+    <h2 id="dailyResultTitle">📅 タイムアップ！</h2>
+    <div id="dailyResultStats"></div>
+    <div class="rank-submit">
+      <input id="dailyName" type="text" maxlength="20" placeholder="社長の名前（未入力でも可）">
+      <button id="bDailySubmit">🏆 記録を登録</button>
+    </div>
+    <p id="dailySubmitMsg" class="mode-desc"></p>
+    <div class="clear-btns">
+      <button id="bDailyRetry">もう一度挑戦</button>
+      <button id="bDailyExit" class="secondary">通常プレイに戻る</button>
+    </div>
+  </div>
+</div>
+
 <script src="js/achievements.js?v=1.7.0"></script>
-<script src="js/ranking.js?v=1.7.0"></script>
-<script src="js/version.js?v=1.7.0"></script>
-<script src="js/game.js?v=1.7.0"></script>
+<script src="js/ranking.js?v=1.8.0"></script>
+<script src="js/version.js?v=1.8.0"></script>
+<script src="js/game.js?v=1.8.0"></script>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(() => {}); });
+}
+</script>
 </body>
 </html>
