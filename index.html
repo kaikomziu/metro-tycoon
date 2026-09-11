@@ -15,7 +15,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap">
-<link rel="stylesheet" href="css/style.css?v=1.6.0">
+<link rel="stylesheet" href="css/style.css?v=1.7.0">
 </head>
 <body>
 <div id="app">
@@ -28,12 +28,20 @@
     <div class="stat"><span class="k">待ち客</span><b id="hWait">0</b></div>
     <div class="stat"><span class="k">輸送</span><b id="hDeliv">0</b></div>
     <div class="sp"></div>
+    <div class="speedgrp">
+      <button class="spd on" data-s="1">1x</button>
+      <button class="spd" data-s="2">2x</button>
+      <button class="spd" data-s="3">3x</button>
+    </div>
+    <button id="bAch" title="実績・見た目">🏅</button>
+    <button id="bRank" title="世界ランキング">🏆</button>
     <button id="bSlots" title="モード・セーブ管理">📖 スロット1</button>
     <button id="bMute" title="サウンド">🔊</button>
     <button id="bHelp" title="遊び方">❓</button>
   </header>
 
   <div id="chapterBar" hidden></div>
+  <div id="eventBar" hidden></div>
 
   <div id="main">
     <div id="stage">
@@ -68,6 +76,11 @@
     <h2>🏙️ 大都市、完成。</h2>
     <p>小さな2駅の路線から始まった会社が、ついに一大都市鉄道網を築き上げた。おめでとう、社長。</p>
     <div id="clearstats"></div>
+    <div class="rank-submit">
+      <input id="clearName" type="text" maxlength="20" placeholder="社長の名前（未入力でも可）">
+      <button id="bClearSubmit">🏆 世界ランキングに登録</button>
+    </div>
+    <p id="clearSubmitMsg" class="mode-desc"></p>
     <button id="bClearContinue">このまま経営を続ける</button>
   </div>
 </div>
@@ -81,6 +94,11 @@
       <li><b>駅を買う：</b>点線の丸は購入できる駅。タップで購入（資金が必要）。駅を増やして路線を伸ばすほど乗客と運賃が増えます。</li>
       <li><b>2つのモード：</b>📖 ストーリーモードは6章の目標をクリアしてエンディングを目指す（混雑放置でゲームオーバー）。♾️ エターナルモードは目標もゲームオーバーもなし、気ままに経営できる。ヘッダーの「📖/♾️ スロット」ボタンで切り替え。</li>
       <li><b>セーブ：</b>モードごとに3つのセーブ枠。自動保存され、スロット管理画面でいつでも切替・削除できます（削除は確認フレーズの入力が必要）。</li>
+      <li><b>速度：</b>ヘッダーの1x/2x/3xでゲーム内時間を早送りできます。</li>
+      <li><b>路線の色：</b>路線を編集中に下に出る色見本をタップすると、その路線の色を自由に変えられます。</li>
+      <li><b>実績・見た目：</b>🏅ボタンで実績一覧と見た目テーマを確認・切り替えできます。実績を解除するほど新しいテーマが使えるように。</li>
+      <li><b>世界ランキング：</b>🏆ボタンでストーリーモードのクリアタイムランキングを見られます。クリア画面から自分の記録を登録できます。</li>
+      <li><b>ランダムイベント：</b>ときどき「ラッシュアワー」「VIP乗客」「車両トラブル」がしばらく発生し、乗客数・運賃・速度が変化します。</li>
     </ul>
     <div id="changelog"></div>
     <button id="bTut">チュートリアルをもう一度</button>
@@ -101,7 +119,28 @@
   </div>
 </div>
 
-<script src="js/version.js?v=1.6.0"></script>
-<script src="js/game.js?v=1.6.0"></script>
+<div id="ach" class="ov hidden">
+  <div class="card wide">
+    <h2>🏅 実績・見た目</h2>
+    <div id="skinRow" class="skin-row"></div>
+    <p id="achProgress" class="mode-desc"></p>
+    <div id="achGrid" class="ach-grid"></div>
+    <button id="bCloseAch">とじる</button>
+  </div>
+</div>
+
+<div id="rank" class="ov hidden">
+  <div class="card wide">
+    <h2>🏆 世界ランキング</h2>
+    <p class="mode-desc">ストーリーモードをクリアしたタイムを競うランキングです。</p>
+    <div id="rankList" class="rank-list"></div>
+    <button id="bCloseRank">とじる</button>
+  </div>
+</div>
+
+<script src="js/achievements.js?v=1.7.0"></script>
+<script src="js/ranking.js?v=1.7.0"></script>
+<script src="js/version.js?v=1.7.0"></script>
+<script src="js/game.js?v=1.7.0"></script>
 </body>
 </html>

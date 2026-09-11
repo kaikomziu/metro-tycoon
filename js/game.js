@@ -40,6 +40,21 @@
     { key: 'discount', cat: 'city', name: '都市開発補助金', desc: '新駅の価格 -6%',          max: 6,  cost: l => Math.round(140 * Math.pow(2.00, l)) },
   ];
 
+  const PALETTE = ['#ff5d75', '#5b8cff', '#3ddc97', '#ffc94d', '#b98bff', '#ff8c42', '#39c2d7', '#e85cc4', '#8bd450', '#7a7ff5'];
+
+  const SKINS = [
+    { key: 'default', name: 'ノーマル',  need: 0 },
+    { key: 'neon',    name: 'ネオン',    need: 6 },
+    { key: 'retro',   name: 'レトロ',    need: 14 },
+    { key: 'aurora',  name: 'オーロラ',  need: 24 },
+  ];
+
+  const EVENT_INFO = {
+    rush:    { icon: '🌆', label: 'ラッシュアワー発生！ 乗客がどっと増加中', freq: 720 },
+    vip:     { icon: '🎩', label: 'VIP乗客が乗車中！ 運賃が跳ね上がる',     freq: 880 },
+    trouble: { icon: '🔧', label: '車両トラブル発生…… 速度が低下中',        freq: 300 },
+  };
+
   const TUT = [
     { text: 'ようこそ、社長。まずは駅をひとつタップして選んでみよう（白い輪がつくよ）。',
       auto: () => editFrom != null },
@@ -83,11 +98,16 @@
   let toastMsg = '', toastT = 0;
   let dispMoney = null;
   let muted = false, actx = null;
+  let simSpeed = 1;               // 1x / 2x / 3x fast-forward, not saved with the slot
+  let skin = 'default';           // cosmetic theme, account-wide (localStorage)
+  let achUnlocked = {};           // achievement id -> unlocked timestamp, account-wide
+  let eventAcc = 0;
 
   const dist2 = (a, b) => { const dx = a.x - b.x, dy = a.y - b.y; return dx * dx + dy * dy; };
   const dist  = (a, b) => Math.sqrt(dist2(a, b));
   const stationById = id => state.stations.find(s => s.id === id);
-  const trainSpeed = () => BASE.speed * (1 + state.upg.speed * 0.22);
+  function eventActive(type) { return state.event && state.event.type === type && state.time < state.event.until; }
+  const trainSpeed = () => BASE.speed * (1 + state.upg.speed * 0.22) * (eventActive('trouble') ? 0.55 : 1);
   const capacity   = () => BASE.capacity + state.upg.capacity * 3;
   const trainsPerLine = () => 1 + state.upg.trains;
   const maxLines   = () => 1 + state.upg.lines;
@@ -112,7 +132,7 @@
   function defaultState() {
     state = {
       money: 100, time: 0, over: false,
-      chapter: 0, cleared: false,
+      chapter: 0, cleared: false, event: null, _nearMiss: false,
       stations: [], spots: [], lines: [],
       upg: {
         fare: 0, capacity: 0, speed: 0, trains: 0, spawn: 0, lines: 0,
@@ -243,7 +263,8 @@
 
   function fareFor(hops) {
     hops = Math.max(1, hops);
-    return Math.round(BASE.fare * (1 + state.upg.fare * 0.5) * hops * (1 + 0.18 * (hops - 1)));
+    const vip = eventActive('vip') ? 1.8 : 1;
+    return Math.round(BASE.fare * (1 + state.upg.fare * 0.5) * hops * (1 + 0.18 * (hops - 1)) * vip);
   }
 
   function trainXY(line, tr) {
@@ -469,8 +490,12 @@
       state.stats.earned += gain;
     }
 
+    if (state.event && state.time >= state.event.until) state.event = null;
+    maybeSpawnEvent(dt);
+
     spawnAcc += dt;
-    const iv = BASE.spawn / (1 + state.upg.spawn * 0.35 + 0.10 * Math.max(0, state.stations.length - 2));
+    let iv = BASE.spawn / (1 + state.upg.spawn * 0.35 + 0.10 * Math.max(0, state.stations.length - 2));
+    if (eventActive('rush')) iv /= 2.2;
     let guard = 0;
     while (spawnAcc >= iv && guard++ < 20) { spawnAcc -= iv; trySpawn(); }
 
@@ -480,16 +505,20 @@
     }
 
     const cLimit = crowdLimit(), gTime = giveUpTime(), oGrace = overGrace();
-    let over = false;
+    let over = false, nearMiss = false;
     state.stations.forEach(s => {
       for (let i = s.passengers.length - 1; i >= 0; i--) {
         if (state.time - s.passengers[i].born > gTime) s.passengers.splice(i, 1);
       }
       if (s.passengers.length > cLimit) s.crowdT += dt;
       else s.crowdT = Math.max(0, s.crowdT - dt * 1.5);
+      if (s.crowdT > oGrace * 0.8) nearMiss = true;
       if (s.crowdT > oGrace) over = true;
     });
+    if (nearMiss && !over) state._nearMiss = true;
     if (over && curMode !== 'eternal') gameOver();
+
+    checkAchievements();
 
     coins.forEach(c => { c.t += dt; c.y -= 20 * dt; });
     coins = coins.filter(c => c.t < 1.1);
@@ -497,6 +526,47 @@
 
     saveAcc += dt;
     if (saveAcc > 3) { saveAcc = 0; save(); }
+  }
+
+  // ---- random events ----
+  function maybeSpawnEvent(dt) {
+    if (state.event) return;
+    eventAcc += dt;
+    if (eventAcc < 75) return;
+    eventAcc = 0;
+    if (Math.random() < 0.55) return;            // not every check triggers one
+    const types = Object.keys(EVENT_INFO);
+    const type = types[(Math.random() * types.length) | 0];
+    const dur = 18 + Math.random() * 12;
+    state.event = { type, until: state.time + dur };
+    showToast(EVENT_INFO[type].icon + ' ' + EVENT_INFO[type].label);
+    beep(EVENT_INFO[type].freq, 0.16, 0.05);
+  }
+
+  // ---- achievements ----
+  function loadAch() {
+    try { achUnlocked = JSON.parse(localStorage.getItem('metro_ach_v1') || '{}'); } catch (e) { achUnlocked = {}; }
+  }
+  function saveAch() {
+    try { localStorage.setItem('metro_ach_v1', JSON.stringify(achUnlocked)); } catch (e) { /* ignore */ }
+  }
+  function achCount() { return Object.keys(achUnlocked).length; }
+  function checkAchievements() {
+    if (!window.METRO_ACHIEVEMENTS) return;
+    const ctx = { state, curMode, activeLines: activeLineCount(), edges: totalEdges(), trains: totalTrains(), cap: capacity() };
+    let newly = null;
+    for (const a of window.METRO_ACHIEVEMENTS) {
+      if (achUnlocked[a.id]) continue;
+      let ok = false;
+      try { ok = !!a.check(ctx); } catch (e) { ok = false; }
+      if (ok) { achUnlocked[a.id] = Date.now(); newly = a; }
+    }
+    if (newly) {
+      saveAch();
+      showToast('🏅 実績解除：' + newly.name);
+      beep(1046, 0.14, 0.05);
+      renderAch();
+    }
   }
 
   function gameOver() {
@@ -537,6 +607,12 @@
         '累計売上：¥' + Math.round(state.stats.earned) + '<br>' +
         '駅の数：' + state.stations.length;
     }
+    const nameInput = document.getElementById('clearName');
+    const msg = document.getElementById('clearSubmitMsg');
+    const btn = document.getElementById('bClearSubmit');
+    if (nameInput && window.MetroRanking) nameInput.value = window.MetroRanking.getName();
+    if (msg) msg.textContent = '';
+    if (btn) btn.disabled = false;
     const el = document.getElementById('clear');
     if (el) el.classList.remove('hidden');
   }
@@ -549,6 +625,69 @@
     const ch = CHAPTERS[idx];
     box.hidden = false;
     box.innerHTML = '<b>第' + (idx + 1) + '章：' + ch.name + '</b><span>' + ch.desc + '</span>';
+  }
+  function renderEventBar() {
+    const box = document.getElementById('eventBar');
+    if (!box) return;
+    if (!state.event || state.time >= state.event.until) { box.hidden = true; return; }
+    const info = EVENT_INFO[state.event.type];
+    if (!info) { box.hidden = true; return; }
+    box.hidden = false;
+    box.innerHTML = '<b>' + info.icon + ' ' + info.label + '</b><span>残り' + Math.ceil(state.event.until - state.time) + '秒</span>';
+  }
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+  function renderAch() {
+    const skinRow = document.getElementById('skinRow');
+    const progress = document.getElementById('achProgress');
+    const grid = document.getElementById('achGrid');
+    if (!skinRow || !grid) return;
+    const n = achCount();
+    skinRow.innerHTML = SKINS.map(s => {
+      const unlocked = n >= s.need;
+      const active = skin === s.key;
+      return '<button class="skin-sw' + (active ? ' on' : '') + (unlocked ? '' : ' locked') + '" data-k="' + s.key + '"' + (unlocked ? '' : ' disabled') + '>' +
+        s.name + (unlocked ? '' : '（実績' + s.need + '）') + '</button>';
+    }).join('');
+    skinRow.querySelectorAll('.skin-sw:not(.locked)').forEach(b => b.addEventListener('click', () => {
+      skin = b.dataset.k;
+      try { localStorage.setItem('metro_skin', skin); } catch (e) {}
+      _bgGrad = null;
+      renderAch();
+    }));
+    const total = window.METRO_ACHIEVEMENTS ? window.METRO_ACHIEVEMENTS.length : 0;
+    if (progress) progress.textContent = '解除済み: ' + n + ' / ' + total;
+    if (!window.METRO_ACHIEVEMENTS) { grid.innerHTML = ''; return; }
+    let html = '', lastCat = null;
+    window.METRO_ACHIEVEMENTS.forEach(a => {
+      if (a.cat !== lastCat) { html += '<div class="upcat ach-cat">' + a.cat + '</div>'; lastCat = a.cat; }
+      const done = !!achUnlocked[a.id];
+      html += '<div class="ach-card' + (done ? ' done' : '') + '">' +
+        '<b>' + (done ? '🏅 ' : '🔒 ') + a.name + '</b>' +
+        '<p>' + a.desc + '</p></div>';
+    });
+    grid.innerHTML = html;
+  }
+  async function renderRank() {
+    const list = document.getElementById('rankList');
+    if (!list || !window.MetroRanking) return;
+    list.innerHTML = '<p class="mode-desc">読み込み中…</p>';
+    try {
+      const rows = await window.MetroRanking.fetchTop(50);
+      if (!rows.length) {
+        list.innerHTML = '<p class="mode-desc">まだ記録がありません。ストーリーモードをクリアして一番乗りを目指そう！</p>';
+        return;
+      }
+      let html = '<div class="rank-row rank-head"><span>#</span><span>社長</span><span>タイム</span><span>駅</span><span>輸送</span></div>';
+      rows.forEach((r, i) => {
+        html += '<div class="rank-row"><span>' + (i + 1) + '</span><span>' + escapeHtml(r.name) + '</span><span>' +
+          fmtTime(r.time_sec) + '</span><span>' + r.stations + '</span><span>' + r.delivered + '</span></div>';
+      });
+      list.innerHTML = html;
+    } catch (e) {
+      list.innerHTML = '<p class="mode-desc">まだランキング機能の準備ができていません。しばらくしてからもう一度お試しください。</p>';
+    }
   }
 
   // ---- rendering ----
@@ -614,14 +753,22 @@
     b = Math.round((t - b) * p) + b;
     return 'rgb(' + r + ',' + g + ',' + b + ')';
   }
-  let _bgGrad = null;
+  const SKIN_BG = {
+    default: ['#161c30', '#0e1220', '#080a12'],
+    neon:    ['#1b1030', '#0f0a20', '#060410'],
+    retro:   ['#2a2016', '#1a1410', '#0e0b08'],
+    aurora:  ['#0f2a26', '#0d1a2a', '#080c14'],
+  };
+  let _bgGrad = null, _bgGradSkin = null;
   function bgGradient() {
-    if (_bgGrad) return _bgGrad;
+    if (_bgGrad && _bgGradSkin === skin) return _bgGrad;
+    const stops = SKIN_BG[skin] || SKIN_BG.default;
     const g = ctx.createRadialGradient(W * 0.5, H * 0.32, 30, W * 0.5, H * 0.6, Math.max(W, H) * 0.8);
-    g.addColorStop(0, '#161c30');
-    g.addColorStop(0.55, '#0e1220');
-    g.addColorStop(1, '#080a12');
+    g.addColorStop(0, stops[0]);
+    g.addColorStop(0.55, stops[1]);
+    g.addColorStop(1, stops[2]);
     _bgGrad = g;
+    _bgGradSkin = skin;
     return g;
   }
 
@@ -636,9 +783,11 @@
     ctx.lineCap = 'round';
     for (let pass = 0; pass < 2; pass++) {
       ctx.lineWidth = pass === 0 ? 9 : 5.5;
+      if (pass === 1 && skin === 'neon') { ctx.shadowBlur = 12; }
       for (let i = 0; i < state.lines.length && i < maxLines(); i++) {
         const l = state.lines[i];
         ctx.strokeStyle = pass === 0 ? '#0d1017' : l.color;
+        if (pass === 1 && skin === 'neon') ctx.shadowColor = l.color;
         l.edges.forEach(e => {
           const a = stationById(e[0]), b = stationById(e[1]);
           if (!a || !b) return;
@@ -649,6 +798,8 @@
           ctx.stroke();
         });
       }
+      ctx.shadowBlur = 0;
+      ctx.shadowColor = 'transparent';
     }
     // rubber band while editing
     if (editing >= 0 && editFrom != null && mouse) {
@@ -827,6 +978,7 @@
     setTxt('hWait', totalWaiting());
     setTxt('hDeliv', state.stats.delivered);
     renderChapterUI();
+    renderEventBar();
   }
   function setTxt(id, v) { const e = document.getElementById(id); if (e) e.textContent = v; }
 
@@ -869,7 +1021,8 @@
     }
     if (editing >= 0) {
       html += '<button id="eUndo">1つ戻す</button><button id="eReset">全消し</button><button id="eDone">完了</button>' +
-        '<span class="ehint">駅をタップで選択 → 別の駅をタップでつなぐ（枝分かれOK）。線路をタップすると撤去</span>';
+        '<span class="ehint">駅をタップで選択 → 別の駅をタップでつなぐ（枝分かれOK）。線路をタップすると撤去</span>' +
+        '<div class="palette">' + PALETTE.map(c => '<button class="swatch" data-c="' + c + '" style="--c:' + c + '"></button>').join('') + '</div>';
     }
     linectrl.innerHTML = html;
     linectrl.querySelectorAll('.lslot').forEach(b => b.addEventListener('click', () => {
@@ -886,6 +1039,11 @@
         l.edges = []; l.trains = []; editFrom = null; rebuildLine(l); renderLineCtrl(); save();
       });
       document.getElementById('eDone').addEventListener('click', stopEdit);
+      linectrl.querySelectorAll('.swatch').forEach(b => b.addEventListener('click', () => {
+        l.color = b.dataset.c;
+        renderLineCtrl();
+        save();
+      }));
     }
   }
 
@@ -963,9 +1121,10 @@
       const cp = {
         mode: curMode, money: state.money, time: state.time, over: state.over,
         chapter: state.chapter || 0, cleared: !!state.cleared,
+        event: state.event, _nearMiss: !!state._nearMiss,
         stations: state.stations, spots: state.spots,
         lines: state.lines.map(l => ({
-          idx: l.idx, edges: l.edges,
+          idx: l.idx, edges: l.edges, color: l.color,
           trains: l.trains.map(t => ({ a: t.a, b: t.b, p: t.p, load: t.load })),
         })),
         upg: state.upg, stats: state.stats, nextId: state.nextId,
@@ -994,11 +1153,13 @@
     state.stats = state.stats || { delivered: 0, earned: 0, spent: 0 };
     state.chapter = typeof state.chapter === 'number' ? state.chapter : 0;
     state.cleared = !!state.cleared;
+    state._nearMiss = !!state._nearMiss;
+    state.event = (state.event && state.event.until > state.time) ? state.event : null;
     state.spots = state.spots || [];
     if (!Array.isArray(state.lines)) state.lines = [];
     while (state.lines.length < 5) state.lines.push(newLine(state.lines.length));
     state.lines.forEach((l, i) => {
-      l.idx = i; l.color = COLORS[i]; l.name = NAMES[i];
+      l.idx = i; l.color = l.color || COLORS[i]; l.name = NAMES[i];
       if (!Array.isArray(l.edges)) {
         l.edges = [];
         if (Array.isArray(l.stationIds)) {          // migrate old linear lines
@@ -1123,6 +1284,17 @@
     tutStepEl = document.getElementById('tutStep');
     tutNextBtn = document.getElementById('tutNext');
 
+    // account-wide meta: achievements, unlocked skin, fast-forward speed
+    loadAch();
+    try {
+      const sv = localStorage.getItem('metro_skin');
+      if (sv && SKINS.some(s => s.key === sv && achCount() >= s.need)) skin = sv;
+    } catch (e) {}
+    try {
+      const sp = parseInt(localStorage.getItem('metro_speed'), 10);
+      if ([1, 2, 3].indexOf(sp) !== -1) simSpeed = sp;
+    } catch (e) {}
+
     // resolve which mode/slot to play, migrating a legacy single-save file if present
     let firstVisit = false;
     try {
@@ -1161,6 +1333,45 @@
     else maybeStartTut();
 
     document.getElementById('bClearContinue').addEventListener('click', () => document.getElementById('clear').classList.add('hidden'));
+    document.getElementById('bClearSubmit').addEventListener('click', async () => {
+      const btn = document.getElementById('bClearSubmit');
+      const msg = document.getElementById('clearSubmitMsg');
+      const nameInput = document.getElementById('clearName');
+      const name = (nameInput.value || '').trim().slice(0, 20) || 'なぞの社長';
+      if (window.MetroRanking) window.MetroRanking.setName(name);
+      btn.disabled = true;
+      msg.textContent = '送信中…';
+      try {
+        await window.MetroRanking.submit({
+          name,
+          time_sec: Math.max(1, Math.round(state.time)),
+          stations: state.stations.length,
+          delivered: state.stats.delivered,
+          earned: Math.round(state.stats.earned),
+        });
+        msg.textContent = '登録しました！🏆 世界ランキングで確認できます。';
+        beep(1200, 0.12, 0.05);
+      } catch (e) {
+        msg.textContent = 'ランキング機能は準備中です。しばらくしてから遊びに来てね。';
+        btn.disabled = false;
+      }
+    });
+
+    // speed / achievements / ranking
+    document.querySelectorAll('.spd').forEach(b => b.classList.toggle('on', +b.dataset.s === simSpeed));
+    document.querySelectorAll('.spd').forEach(b => b.addEventListener('click', () => {
+      simSpeed = +b.dataset.s;
+      try { localStorage.setItem('metro_speed', String(simSpeed)); } catch (e) {}
+      document.querySelectorAll('.spd').forEach(x => x.classList.toggle('on', +x.dataset.s === simSpeed));
+    }));
+
+    const achEl = document.getElementById('ach');
+    document.getElementById('bAch').addEventListener('click', () => { renderAch(); achEl.classList.remove('hidden'); });
+    document.getElementById('bCloseAch').addEventListener('click', () => achEl.classList.add('hidden'));
+
+    const rankEl = document.getElementById('rank');
+    document.getElementById('bRank').addEventListener('click', () => { rankEl.classList.remove('hidden'); renderRank(); });
+    document.getElementById('bCloseRank').addEventListener('click', () => rankEl.classList.add('hidden'));
 
     cv.addEventListener('pointerdown', e => {
       e.preventDefault();
@@ -1203,7 +1414,7 @@
       last = t;
       if (!(dt > 0)) dt = 0.033;
       if (dt > 0.25) dt = 0.25;
-      update(dt);
+      update(dt * simSpeed);
       updateHud();
       updateSide();
       if (!rafOn) draw();
