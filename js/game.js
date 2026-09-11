@@ -4,7 +4,7 @@
   // ---- constants ----
   const W = 960, H = 620;
   const SHAPES = ['circle', 'triangle', 'square', 'diamond', 'pentagon'];
-  const COLORS = ['#ff5a4e', '#3d8bff', '#2fc06b', '#ffb02e', '#c76bff'];
+  const COLORS = ['#ff5d75', '#5b8cff', '#3ddc97', '#ffc94d', '#b98bff'];
   const NAMES  = ['1号線', '2号線', '3号線', '4号線', '5号線'];
   const MODES = ['story', 'eternal'];
   const SLOTS = [1, 2, 3];
@@ -71,6 +71,7 @@
   let spawnAcc = 0, saveAcc = 0;
   let coins = [];
   let toastMsg = '', toastT = 0;
+  let dispMoney = null;
   let muted = false, actx = null;
 
   const dist2 = (a, b) => { const dx = a.x - b.x, dy = a.y - b.y; return dx * dx + dy * dy; };
@@ -577,12 +578,32 @@
     ctx.arcTo(x, y, x + w, y, r);
     ctx.closePath();
   }
+  // lighten (pct>0) or darken (pct<0) a #rrggbb colour
+  function shade(hex, pct) {
+    const n = parseInt(hex.slice(1), 16);
+    let r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+    const t = pct < 0 ? 0 : 255, p = Math.abs(pct) / 100;
+    r = Math.round((t - r) * p) + r;
+    g = Math.round((t - g) * p) + g;
+    b = Math.round((t - b) * p) + b;
+    return 'rgb(' + r + ',' + g + ',' + b + ')';
+  }
+  let _bgGrad = null;
+  function bgGradient() {
+    if (_bgGrad) return _bgGrad;
+    const g = ctx.createRadialGradient(W * 0.5, H * 0.32, 30, W * 0.5, H * 0.6, Math.max(W, H) * 0.8);
+    g.addColorStop(0, '#161c30');
+    g.addColorStop(0.55, '#0e1220');
+    g.addColorStop(1, '#080a12');
+    _bgGrad = g;
+    return g;
+  }
 
   function draw() {
-    ctx.fillStyle = '#121826';
+    ctx.fillStyle = bgGradient();
     ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = 'rgba(255,255,255,0.03)';
-    for (let x = 40; x < W; x += 40) for (let y = 40; y < H; y += 40) ctx.fillRect(x, y, 1, 1);
+    ctx.fillStyle = 'rgba(255,255,255,0.035)';
+    for (let x = 36; x < W; x += 36) for (let y = 36; y < H; y += 36) ctx.fillRect(x, y, 1.4, 1.4);
 
     // tracks — dark casing, then colour; parallel offset where lines share a corridor
     rebuildShare();
@@ -646,11 +667,16 @@
         ctx.lineWidth = 2.5;
         ctx.beginPath(); ctx.arc(s.x, s.y, 20, 0, 7); ctx.stroke();
       }
-      // body: dark disc + light rim so it reads over any track colour
+      // body: dark disc (soft drop shadow) + light rim so it reads over any track colour
+      ctx.save();
+      ctx.shadowColor = 'rgba(0,0,0,0.55)';
+      ctx.shadowBlur = 9;
+      ctx.shadowOffsetY = 3;
       ctx.fillStyle = '#0d1017';
       ctx.beginPath(); ctx.arc(s.x, s.y, 15, 0, 7); ctx.fill();
+      ctx.restore();
       ctx.lineWidth = 1.5;
-      ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+      ctx.strokeStyle = 'rgba(255,255,255,0.3)';
       ctx.beginPath(); ctx.arc(s.x, s.y, 15, 0, 7); ctx.stroke();
       ctx.fillStyle = '#eef2f8';
       drawShape(s.x, s.y, 8, s.shape);
@@ -702,14 +728,24 @@
         ctx.save();
         ctx.translate(pos.x + o.x, pos.y + o.y);
         ctx.rotate(ang);
+        ctx.shadowColor = 'rgba(0,0,0,0.5)';
+        ctx.shadowBlur = 6;
+        ctx.shadowOffsetY = 2;
         roundRect(-12, -6, 24, 12, 3);
-        ctx.fillStyle = l.color;
+        const grad = ctx.createLinearGradient(0, -6, 0, 6);
+        grad.addColorStop(0, shade(l.color, 22));
+        grad.addColorStop(1, shade(l.color, -20));
+        ctx.fillStyle = grad;
         ctx.fill();
-        ctx.lineWidth = 1.5;
-        ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+        ctx.shadowColor = 'transparent';
+        ctx.lineWidth = 1.3;
+        ctx.strokeStyle = 'rgba(0,0,0,0.5)';
         ctx.stroke();
-        ctx.fillStyle = 'rgba(255,255,255,0.96)';
-        for (let k = 0; k < tr.load.length && k < 6; k++) ctx.fillRect(-9 + k * 3.4, -1.5, 2, 3);
+        ctx.fillStyle = 'rgba(255,255,255,0.55)';
+        roundRect(-8, -3.6, 15, 2, 1);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.97)';
+        for (let k = 0; k < tr.load.length && k < 6; k++) ctx.fillRect(-9 + k * 3.4, 1.2, 2, 3);
         ctx.restore();
       });
     }
@@ -717,19 +753,27 @@
     // coins
     coins.forEach(c => {
       ctx.globalAlpha = Math.max(0, 1 - c.t / 1.1);
-      label('+¥' + c.val, c.x, c.y, '#ffe17a', 13);
+      ctx.shadowColor = 'rgba(255,201,77,0.55)';
+      ctx.shadowBlur = 8;
+      label('+¥' + c.val, c.x, c.y, '#ffdb85', 13);
+      ctx.shadowColor = 'transparent';
       ctx.globalAlpha = 1;
     });
 
     if (toastT > 0) {
-      ctx.font = 'bold 14px system-ui';
+      ctx.globalAlpha = toastT > 0.4 ? 1 : toastT / 0.4;
+      ctx.font = "600 13.5px 'Space Grotesk',system-ui";
       ctx.textAlign = 'center';
-      const w = ctx.measureText(toastMsg).width + 26;
-      ctx.fillStyle = 'rgba(0,0,0,0.6)';
-      roundRect(W / 2 - w / 2, H - 42, w, 27, 7);
+      const w = ctx.measureText(toastMsg).width + 30;
+      ctx.fillStyle = 'rgba(14,17,27,0.86)';
+      roundRect(W / 2 - w / 2, H - 44, w, 29, 14);
       ctx.fill();
-      ctx.fillStyle = '#fff';
-      ctx.fillText(toastMsg, W / 2, H - 23);
+      ctx.strokeStyle = 'rgba(255,255,255,0.14)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.fillStyle = '#eef1fb';
+      ctx.fillText(toastMsg, W / 2, H - 24.5);
+      ctx.globalAlpha = 1;
     }
   }
 
@@ -747,7 +791,10 @@
     return state.stations.reduce((a, s) => a + s.passengers.length, 0);
   }
   function updateHud() {
-    setTxt('hMoney', '¥' + Math.floor(state.money));
+    if (dispMoney === null || Math.abs(dispMoney - state.money) > state.money * 0.6 + 500) dispMoney = state.money;
+    dispMoney += (state.money - dispMoney) * 0.2;
+    if (Math.abs(dispMoney - state.money) < 0.5) dispMoney = state.money;
+    setTxt('hMoney', '¥' + Math.floor(dispMoney));
     setTxt('hTime', fmtTime(state.time));
     setTxt('hSta', state.stations.length);
     setTxt('hTrain', totalTrains());
