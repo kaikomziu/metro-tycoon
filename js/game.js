@@ -21,13 +21,23 @@
     overLimit: 22,    // sec of overcrowding => game over
   };
 
+  const UP_CATS = { ops: '🚆 運行', biz: '💰 経営', city: '🏙️ 都市開発' };
   const UP = [
-    { key: 'fare',     name: '運賃改定',   desc: '運賃 +50%',        max: 10, cost: l => Math.round(90  * Math.pow(1.85, l)) },
-    { key: 'capacity', name: '車両大型化', desc: '列車の定員 +3',    max: 8,  cost: l => Math.round(70  * Math.pow(1.80, l)) },
-    { key: 'speed',    name: '加速性能',   desc: '列車速度 +22%',    max: 8,  cost: l => Math.round(80  * Math.pow(1.80, l)) },
-    { key: 'trains',   name: '増発',       desc: '全路線の列車 +1',  max: 4,  cost: l => Math.round(140 * Math.pow(2.50, l)) },
-    { key: 'spawn',    name: '沿線開発',   desc: '乗客の発生 +35%',  max: 10, cost: l => Math.round(100 * Math.pow(1.80, l)) },
-    { key: 'lines',    name: '新規開業',   desc: '路線スロット +1',  max: 4,  cost: l => Math.round(200 * Math.pow(2.60, l)) },
+    // 🚆 運行
+    { key: 'capacity', cat: 'ops', name: '車両大型化',   desc: '列車の定員 +3',            max: 8,  cost: l => Math.round(70  * Math.pow(1.80, l)) },
+    { key: 'speed',    cat: 'ops', name: '加速性能',     desc: '列車速度 +22%',            max: 8,  cost: l => Math.round(80  * Math.pow(1.80, l)) },
+    { key: 'trains',   cat: 'ops', name: '増発',         desc: '全路線の列車 +1',          max: 4,  cost: l => Math.round(140 * Math.pow(2.50, l)) },
+    // 💰 経営
+    { key: 'fare',     cat: 'biz', name: '運賃改定',     desc: '運賃 +50%',                max: 10, cost: l => Math.round(90  * Math.pow(1.85, l)) },
+    { key: 'opFee',    cat: 'biz', name: '基本収益改善', desc: '列車の運行収益 +1',        max: 6,  cost: l => Math.round(160 * Math.pow(2.10, l)) },
+    { key: 'interest', cat: 'biz', name: '資産運用',     desc: '資金が毎秒 +0.015%ずつ増え続ける', max: 10, cost: l => Math.round(220 * Math.pow(2.30, l)) },
+    // 🏙️ 都市開発
+    { key: 'spawn',    cat: 'city', name: '沿線開発',      desc: '乗客の発生 +35%',          max: 10, cost: l => Math.round(100 * Math.pow(1.80, l)) },
+    { key: 'lines',    cat: 'city', name: '新規開業',      desc: '路線スロット +1',          max: 4,  cost: l => Math.round(200 * Math.pow(2.60, l)) },
+    { key: 'crowd',    cat: 'city', name: '駅ホーム拡張',  desc: '混雑の許容人数 +3',        max: 8,  cost: l => Math.round(85  * Math.pow(1.80, l)) },
+    { key: 'patience', cat: 'city', name: '乗客サービス向上', desc: '乗客が待てる時間 +40秒', max: 8,  cost: l => Math.round(75  * Math.pow(1.75, l)) },
+    { key: 'grace',    cat: 'city', name: '緊急対応マニュアル', desc: '混雑放置の猶予 +6秒', max: 6,  cost: l => Math.round(130 * Math.pow(2.00, l)) },
+    { key: 'discount', cat: 'city', name: '都市開発補助金', desc: '新駅の価格 -6%',          max: 6,  cost: l => Math.round(140 * Math.pow(2.00, l)) },
   ];
 
   const TUT = [
@@ -81,6 +91,9 @@
   const capacity   = () => BASE.capacity + state.upg.capacity * 3;
   const trainsPerLine = () => 1 + state.upg.trains;
   const maxLines   = () => 1 + state.upg.lines;
+  const crowdLimit = () => BASE.crowd + (state.upg.crowd || 0) * 3;
+  const giveUpTime = () => BASE.giveUp + (state.upg.patience || 0) * 40;
+  const overGrace  = () => BASE.overLimit + (state.upg.grace || 0) * 6;
 
   function newLine(i) {
     return { idx: i, color: COLORS[i], name: NAMES[i], edges: [], trains: [], _adj: {} };
@@ -91,7 +104,9 @@
     return st;
   }
   function spotCost() {
-    return Math.round(55 * Math.pow(1.34, Math.max(0, state.stations.length - 2)));
+    const base = Math.round(55 * Math.pow(1.34, Math.max(0, state.stations.length - 2)));
+    const discount = Math.pow(0.94, (state.upg && state.upg.discount) || 0);
+    return Math.max(10, Math.round(base * discount));
   }
 
   function defaultState() {
@@ -99,7 +114,10 @@
       money: 100, time: 0, over: false,
       chapter: 0, cleared: false,
       stations: [], spots: [], lines: [],
-      upg: { fare: 0, capacity: 0, speed: 0, trains: 0, spawn: 0, lines: 0 },
+      upg: {
+        fare: 0, capacity: 0, speed: 0, trains: 0, spawn: 0, lines: 0,
+        crowd: 0, patience: 0, grace: 0, interest: 0, opFee: 0, discount: 0,
+      },
       stats: { delivered: 0, earned: 0, spent: 0 },
       nextId: 1,
     };
@@ -273,8 +291,9 @@
         beep(720, 0.09, 0.035);
       }
     }
-    state.money += 1;               // operating revenue for running
-    state.stats.earned += 1;
+    const opRev = 1 + (state.upg.opFee || 0);   // operating revenue for running
+    state.money += opRev;
+    state.stats.earned += opRev;
 
     const cap = capacity();
     const d = bfs(line, stId);
@@ -444,6 +463,12 @@
     tutUpdate();
     if (curMode === 'story') checkChapter();
 
+    if (state.upg.interest) {
+      const gain = state.money * state.upg.interest * 0.00015 * dt;
+      state.money += gain;
+      state.stats.earned += gain;
+    }
+
     spawnAcc += dt;
     const iv = BASE.spawn / (1 + state.upg.spawn * 0.35 + 0.10 * Math.max(0, state.stations.length - 2));
     let guard = 0;
@@ -454,14 +479,15 @@
       if (l.edges.length) l.trains.forEach(t => stepTrain(l, t, dt));
     }
 
+    const cLimit = crowdLimit(), gTime = giveUpTime(), oGrace = overGrace();
     let over = false;
     state.stations.forEach(s => {
       for (let i = s.passengers.length - 1; i >= 0; i--) {
-        if (state.time - s.passengers[i].born > BASE.giveUp) s.passengers.splice(i, 1);
+        if (state.time - s.passengers[i].born > gTime) s.passengers.splice(i, 1);
       }
-      if (s.passengers.length > BASE.crowd) s.crowdT += dt;
+      if (s.passengers.length > cLimit) s.crowdT += dt;
       else s.crowdT = Math.max(0, s.crowdT - dt * 1.5);
-      if (s.crowdT > BASE.overLimit) over = true;
+      if (s.crowdT > oGrace) over = true;
     });
     if (over && curMode !== 'eternal') gameOver();
 
@@ -654,7 +680,7 @@
     // stations
     state.stations.forEach(s => {
       if (s.crowdT > 0) {
-        const frac = Math.min(1, s.crowdT / BASE.overLimit);
+        const frac = Math.min(1, s.crowdT / overGrace());
         ctx.strokeStyle = 'rgba(10,13,20,0.85)';
         ctx.lineWidth = 6;
         ctx.beginPath(); ctx.arc(s.x, s.y, 19, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * frac); ctx.stroke();
@@ -683,7 +709,7 @@
 
       const pc = s.passengers.length;
       const shown = Math.min(pc, 7);
-      ctx.fillStyle = pc > BASE.crowd ? '#ff9a5b' : '#ffd85e';
+      ctx.fillStyle = pc > crowdLimit() ? '#ff9a5b' : '#ffd85e';
       for (let k = 0; k < shown; k++) {
         const ang = -Math.PI / 2 + (k - (shown - 1) / 2) * 0.3;
         const d = stationById(s.passengers[k].dest);
@@ -806,7 +832,12 @@
 
   function buildSide() {
     let html = '<h3>アップグレード</h3>';
+    let lastCat = null;
     UP.forEach(u => {
+      if (u.cat !== lastCat) {
+        html += '<div class="upcat">' + UP_CATS[u.cat] + '</div>';
+        lastCat = u.cat;
+      }
       html += '<div class="uprow" data-k="' + u.key + '">' +
         '<div class="uptop"><b>' + u.name + '</b><span class="uplv"></span></div>' +
         '<div class="updesc">' + u.desc + '</div>' +
@@ -957,8 +988,8 @@
 
     state = s;
     state.upg = state.upg || {};
-    ['fare', 'capacity', 'speed', 'trains', 'spawn', 'lines'].forEach(k => {
-      if (typeof state.upg[k] !== 'number') state.upg[k] = 0;
+    UP.forEach(u => {
+      if (typeof state.upg[u.key] !== 'number') state.upg[u.key] = 0;
     });
     state.stats = state.stats || { delivered: 0, earned: 0, spent: 0 };
     state.chapter = typeof state.chapter === 'number' ? state.chapter : 0;
