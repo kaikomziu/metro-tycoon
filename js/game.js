@@ -104,6 +104,7 @@
   let achUnlocked = {};           // achievement id -> unlocked timestamp, account-wide
   let eventAcc = 0;
   let camera = { x: WORLD_W / 2, y: WORLD_H / 2, zoom: 0.72 };   // pan/zoom over the world, not persisted
+  let buyMode = 1;                // 1 | 5 | 'max' — how many upgrade levels a click buys, account-wide (localStorage)
   let _rng = Math.random;         // swapped for a seeded generator while building a daily-challenge map
   function rand() { return _rng(); }
   function mulberry32(seed) {
@@ -405,15 +406,28 @@
     save();
     return st;
   }
+  // how many levels of `u` are affordable right now, buying at most `want` of them
+  function bulkPreview(u) {
+    const lv = state.upg[u.key];
+    const cap = u.max - lv;
+    if (cap <= 0) return { maxed: true, lv };
+    const want = buyMode === 'max' ? cap : Math.min(buyMode, cap);
+    let l = lv, total = 0, count = 0;
+    for (let i = 0; i < want; i++) {
+      const c = u.cost(l);
+      if (state.money < total + c) break;
+      total += c; l++; count++;
+    }
+    return { maxed: false, lv, cap, count, total, nextCost: u.cost(lv) };
+  }
   function buyUpgrade(key) {
     const u = UP.find(x => x.key === key);
-    const lv = state.upg[key];
-    if (lv >= u.max) return;
-    const c = u.cost(lv);
-    if (state.money < c) { showToast('資金が足りません（¥' + c + '）'); beep(200, 0.12, 0.03); return; }
-    state.money -= c;
-    state.stats.spent += c;
-    state.upg[key] = lv + 1;
+    const p = bulkPreview(u);
+    if (p.maxed) return;
+    if (p.count === 0) { showToast('資金が足りません（¥' + p.nextCost + '）'); beep(200, 0.12, 0.03); return; }
+    state.money -= p.total;
+    state.stats.spent += p.total;
+    state.upg[key] = p.lv + p.count;
     state.lines.forEach(rebuildLine);
     beep(560, 0.1, 0.045);
     updateSide();
@@ -1105,7 +1119,9 @@
   function setTxt(id, v) { const e = document.getElementById(id); if (e) e.textContent = v; }
 
   function buildSide() {
-    let html = '<h3>アップグレード</h3>';
+    let html = '<div class="up-head"><h3>アップグレード</h3><div class="buymode">' +
+      '<button class="bm" data-n="1">x1</button><button class="bm" data-n="5">x5</button><button class="bm" data-n="max">MAX</button>' +
+      '</div></div>';
     let lastCat = null;
     UP.forEach(u => {
       if (u.cat !== lastCat) {
@@ -1122,15 +1138,28 @@
     side.querySelectorAll('.uprow').forEach(row => {
       row.querySelector('.upbtn').addEventListener('click', () => buyUpgrade(row.dataset.k));
     });
+    side.querySelectorAll('.bm').forEach(b => b.addEventListener('click', () => {
+      buyMode = b.dataset.n === 'max' ? 'max' : parseInt(b.dataset.n, 10);
+      try { localStorage.setItem('metro_buymode', String(buyMode)); } catch (e) {}
+      updateSide();
+    }));
+    updateSide();
   }
   function updateSide() {
+    side.querySelectorAll('.bm').forEach(b => b.classList.toggle('on', String(buyMode) === b.dataset.n));
     side.querySelectorAll('.uprow').forEach(row => {
       const u = UP.find(x => x.key === row.dataset.k);
-      const lv = state.upg[u.key];
-      row.querySelector('.uplv').textContent = 'Lv ' + lv + '/' + u.max;
+      const p = bulkPreview(u);
+      row.querySelector('.uplv').textContent = 'Lv ' + p.lv + '/' + u.max;
       const btn = row.querySelector('.upbtn');
-      if (lv >= u.max) { btn.textContent = 'MAX'; btn.disabled = true; }
-      else { const c = u.cost(lv); btn.textContent = '¥' + c; btn.disabled = state.money < c; }
+      if (p.maxed) { btn.textContent = 'MAX'; btn.disabled = true; return; }
+      if (p.count > 0) {
+        btn.textContent = '¥' + p.total + (p.count > 1 ? '（+' + p.count + 'Lv）' : '');
+        btn.disabled = false;
+      } else {
+        btn.textContent = '¥' + p.nextCost;
+        btn.disabled = true;
+      }
     });
   }
 
@@ -1464,6 +1493,11 @@
     try {
       const sp = parseInt(localStorage.getItem('metro_speed'), 10);
       if ([1, 2, 3].indexOf(sp) !== -1) simSpeed = sp;
+    } catch (e) {}
+    try {
+      const bm = localStorage.getItem('metro_buymode');
+      if (bm === '1' || bm === '5') buyMode = parseInt(bm, 10);
+      else if (bm === 'max') buyMode = 'max';
     } catch (e) {}
 
     // resolve which mode/slot to play, migrating a legacy single-save file if present
