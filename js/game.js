@@ -113,6 +113,7 @@
   let muted = false, actx = null;
   let simSpeed = 1;               // 1x / 2x / 3x fast-forward, not saved with the slot
   let skin = 'default';           // cosmetic theme, account-wide (localStorage)
+  let lightMode = false;          // 軽量化モード: skip shadows/gradients/glow for big networks, account-wide (localStorage)
   let achUnlocked = {};           // achievement id -> unlocked timestamp, account-wide
   let prestige = { gp: 0, tree: {}, count: 0 };  // 転生: 栄光ポイント + 永続ツリー, account-wide
   let eventAcc = 0;
@@ -1008,10 +1009,12 @@
   function label(txt, x, y, fill, size) {
     ctx.font = 'bold ' + size + 'px system-ui';
     ctx.textAlign = 'center';
-    ctx.lineJoin = 'round';
-    ctx.lineWidth = 3.5;
-    ctx.strokeStyle = 'rgba(10,13,20,0.92)';
-    ctx.strokeText(txt, x, y);
+    if (!lightMode) {
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = 3.5;
+      ctx.strokeStyle = 'rgba(10,13,20,0.92)';
+      ctx.strokeText(txt, x, y);
+    }
     ctx.fillStyle = fill;
     ctx.fillText(txt, x, y);
   }
@@ -1067,8 +1070,10 @@
   function draw() {
     ctx.fillStyle = bgGradient();
     ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = 'rgba(255,255,255,0.035)';
-    for (let x = 36; x < W; x += 36) for (let y = 36; y < H; y += 36) ctx.fillRect(x, y, 1.4, 1.4);
+    if (!lightMode) {
+      ctx.fillStyle = 'rgba(255,255,255,0.035)';
+      for (let x = 36; x < W; x += 36) for (let y = 36; y < H; y += 36) ctx.fillRect(x, y, 1.4, 1.4);
+    }
 
     // everything below is drawn in world space; pan/zoom via `camera`
     ctx.save();
@@ -1081,11 +1086,11 @@
     ctx.lineCap = 'round';
     for (let pass = 0; pass < 2; pass++) {
       ctx.lineWidth = pass === 0 ? 9 : 5.5;
-      if (pass === 1 && skin === 'neon') { ctx.shadowBlur = 12; }
+      if (pass === 1 && skin === 'neon' && !lightMode) { ctx.shadowBlur = 12; }
       for (let i = 0; i < state.lines.length && i < maxLines(); i++) {
         const l = state.lines[i];
         ctx.strokeStyle = pass === 0 ? '#0d1017' : l.color;
-        if (pass === 1 && skin === 'neon') ctx.shadowColor = l.color;
+        if (pass === 1 && skin === 'neon' && !lightMode) ctx.shadowColor = l.color;
         l.edges.forEach(e => {
           const a = stationById(e[0]), b = stationById(e[1]);
           if (!a || !b) return;
@@ -1143,13 +1148,18 @@
         ctx.beginPath(); ctx.arc(s.x, s.y, 20, 0, 7); ctx.stroke();
       }
       // body: dark disc (soft drop shadow) + light rim so it reads over any track colour
-      ctx.save();
-      ctx.shadowColor = 'rgba(0,0,0,0.55)';
-      ctx.shadowBlur = 9;
-      ctx.shadowOffsetY = 3;
-      ctx.fillStyle = '#0d1017';
-      ctx.beginPath(); ctx.arc(s.x, s.y, 15, 0, 7); ctx.fill();
-      ctx.restore();
+      if (lightMode) {
+        ctx.fillStyle = '#0d1017';
+        ctx.beginPath(); ctx.arc(s.x, s.y, 15, 0, 7); ctx.fill();
+      } else {
+        ctx.save();
+        ctx.shadowColor = 'rgba(0,0,0,0.55)';
+        ctx.shadowBlur = 9;
+        ctx.shadowOffsetY = 3;
+        ctx.fillStyle = '#0d1017';
+        ctx.beginPath(); ctx.arc(s.x, s.y, 15, 0, 7); ctx.fill();
+        ctx.restore();
+      }
       ctx.lineWidth = 1.5;
       ctx.strokeStyle = 'rgba(255,255,255,0.3)';
       ctx.beginPath(); ctx.arc(s.x, s.y, 15, 0, 7); ctx.stroke();
@@ -1162,7 +1172,7 @@
       for (let k = 0; k < shown; k++) {
         const ang = -Math.PI / 2 + (k - (shown - 1) / 2) * 0.3;
         const d = stationById(s.passengers[k].dest);
-        drawShape(s.x + Math.cos(ang) * 26, s.y + Math.sin(ang) * 26, 4.3, d ? d.shape : 'circle', 1.6);
+        drawShape(s.x + Math.cos(ang) * 26, s.y + Math.sin(ang) * 26, 4.3, d ? d.shape : 'circle', lightMode ? 0 : 1.6);
       }
       if (pc > 7) label('+' + (pc - 7), s.x, s.y - 26, '#ffd85e', 10);
     });
@@ -1203,14 +1213,20 @@
         ctx.save();
         ctx.translate(pos.x + o.x, pos.y + o.y);
         ctx.rotate(ang);
-        ctx.shadowColor = 'rgba(0,0,0,0.5)';
-        ctx.shadowBlur = 6;
-        ctx.shadowOffsetY = 2;
+        if (!lightMode) {
+          ctx.shadowColor = 'rgba(0,0,0,0.5)';
+          ctx.shadowBlur = 6;
+          ctx.shadowOffsetY = 2;
+        }
         roundRect(-12, -6, 24, 12, 3);
-        const grad = ctx.createLinearGradient(0, -6, 0, 6);
-        grad.addColorStop(0, shade(l.color, 22));
-        grad.addColorStop(1, shade(l.color, -20));
-        ctx.fillStyle = grad;
+        if (lightMode) {
+          ctx.fillStyle = l.color;
+        } else {
+          const grad = ctx.createLinearGradient(0, -6, 0, 6);
+          grad.addColorStop(0, shade(l.color, 22));
+          grad.addColorStop(1, shade(l.color, -20));
+          ctx.fillStyle = grad;
+        }
         ctx.fill();
         ctx.shadowColor = 'transparent';
         ctx.lineWidth = 1.3;
@@ -1228,8 +1244,7 @@
     // coins
     coins.forEach(c => {
       ctx.globalAlpha = Math.max(0, 1 - c.t / 1.1);
-      ctx.shadowColor = 'rgba(255,201,77,0.55)';
-      ctx.shadowBlur = 8;
+      if (!lightMode) { ctx.shadowColor = 'rgba(255,201,77,0.55)'; ctx.shadowBlur = 8; }
       label('+¥' + c.val, c.x, c.y, '#ffdb85', 13);
       ctx.shadowColor = 'transparent';
       ctx.globalAlpha = 1;
@@ -1671,6 +1686,7 @@
       if (bm === '1' || bm === '5') buyMode = parseInt(bm, 10);
       else if (bm === 'max') buyMode = 'max';
     } catch (e) {}
+    try { lightMode = localStorage.getItem('metro_light') === '1'; } catch (e) {}
 
     // resolve which mode/slot to play, migrating a legacy single-save file if present
     let firstVisit = false;
@@ -1849,6 +1865,20 @@
       document.getElementById('bBgm').addEventListener('click', cycleBgm);
       if (bgmIndex >= 0) { bgmEl.src = BGM_TRACKS[bgmIndex].src; bgmEl.muted = muted; }
     }
+    const settingsEl = document.getElementById('settings');
+    const lightToggle = document.getElementById('lightToggle');
+    lightToggle.checked = lightMode;
+    document.getElementById('bSettings').addEventListener('click', () => {
+      lightToggle.checked = lightMode;
+      settingsEl.classList.remove('hidden');
+    });
+    document.getElementById('bCloseSettings').addEventListener('click', () => settingsEl.classList.add('hidden'));
+    lightToggle.addEventListener('change', () => {
+      lightMode = lightToggle.checked;
+      try { localStorage.setItem('metro_light', lightMode ? '1' : '0'); } catch (e) {}
+      showToast(lightMode ? '🪶 軽量化モードON' : '軽量化モードOFF');
+    });
+
     const help = document.getElementById('help');
     document.getElementById('bHelp').addEventListener('click', () => { renderChangelog(); help.classList.remove('hidden'); });
     document.getElementById('bCloseHelp').addEventListener('click', () => help.classList.add('hidden'));

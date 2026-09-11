@@ -1,14 +1,14 @@
 // METRO TYCOON service worker — app-shell cache-first with background revalidation.
 // Bump CACHE whenever a deployed version changes so old shells don't stick around.
-const CACHE = 'metro-tycoon-v1.11.2';
+const CACHE = 'metro-tycoon-v1.12.0';
 const ASSETS = [
   './',
   './index.html',
-  './css/style.css?v=1.11.2',
-  './js/version.js?v=1.11.2',
-  './js/achievements.js?v=1.11.2',
-  './js/ranking.js?v=1.11.2',
-  './js/game.js?v=1.11.2',
+  './css/style.css?v=1.12.0',
+  './js/version.js?v=1.12.0',
+  './js/achievements.js?v=1.12.0',
+  './js/ranking.js?v=1.12.0',
+  './js/game.js?v=1.12.0',
   './manifest.json',
   './icons/icon-192.png',
   './icons/icon-512.png',

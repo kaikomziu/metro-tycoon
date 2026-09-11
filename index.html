@@ -22,7 +22,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap">
-<link rel="stylesheet" href="css/style.css?v=1.11.2">
+<link rel="stylesheet" href="css/style.css?v=1.12.0">
 </head>
 <body>
 <div id="app">
@@ -47,6 +47,7 @@
     <button id="bSlots" title="モード・セーブ管理">📖 スロット1</button>
     <button id="bBgm" title="BGM">🎵 BGM OFF</button>
     <button id="bMute" title="サウンド">🔊</button>
+    <button id="bSettings" title="設定">⚙️</button>
     <button id="bHelp" title="遊び方">❓</button>
   </header>
   <audio id="bgm" loop preload="none"></audio>
@@ -123,6 +124,7 @@
       <li><b>ニューゲーム+：</b>ストーリークリア後、「ニューゲーム+で再挑戦」でアップグレード初期Lvボーナスを引き継いだ次の周回を始められます。</li>
       <li><b>まとめ買い・自動接続：</b>マップ下のツールバーの「🏗️ 買える駅を全部買う」で安い駅から自動購入、「🔗 自動接続」で編集中（未選択なら空いている）路線にまだつながっていない駅を近い順に自動でつなげます。</li>
       <li><b>転生（エターナル専用）：</b>エターナルモード中だけヘッダーに「🌟 転生」が表示されます。今の駅・資金・アップグレードをリセットする代わりに「栄光ポイント」を獲得でき、永続強化ツリー（速度・運賃・乗客・建設費・開始資金・幸運）に使えます。ポイントとツリーは全エターナルスロット共通です。</li>
+      <li><b>軽量化モード：</b>⚙️ボタンの設定から。駅や列車が増えて動作が重いと感じたら、影・グラデーション・グロー演出を省いて描画を軽くできます。</li>
     </ul>
     <div id="changelog"></div>
     <button id="bTut">チュートリアルをもう一度</button>
@@ -159,6 +161,20 @@
     <p class="mode-desc">ストーリーモードをクリアしたタイムを競うランキングです。</p>
     <div id="rankList" class="rank-list"></div>
     <button id="bCloseRank">とじる</button>
+  </div>
+</div>
+
+<div id="settings" class="ov hidden">
+  <div class="card">
+    <h2>⚙️ 設定</h2>
+    <div class="setting-row">
+      <div class="setting-info">
+        <b>🪶 軽量化モード</b>
+        <p>駅や列車が増えて描画が重いと感じたら。影・グラデーション・グロー演出を省いて描画を軽くします（見た目はシンプルになりますが、動作は軽快になります）。</p>
+      </div>
+      <label class="switch"><input type="checkbox" id="lightToggle"><span class="switch-slider"></span></label>
+    </div>
+    <button id="bCloseSettings">とじる</button>
   </div>
 </div>
 
@@ -212,10 +228,10 @@
   </div>
 </div>
 
-<script src="js/achievements.js?v=1.11.2"></script>
-<script src="js/ranking.js?v=1.11.2"></script>
-<script src="js/version.js?v=1.11.2"></script>
-<script src="js/game.js?v=1.11.2"></script>
+<script src="js/achievements.js?v=1.12.0"></script>
+<script src="js/ranking.js?v=1.12.0"></script>
+<script src="js/version.js?v=1.12.0"></script>
+<script src="js/game.js?v=1.12.0"></script>
 <script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(() => {}); });
